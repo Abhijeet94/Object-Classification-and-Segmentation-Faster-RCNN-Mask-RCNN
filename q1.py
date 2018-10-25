@@ -154,11 +154,7 @@ with tf.variable_scope("RPNlayers"):
 								kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.01), 
 								bias_initializer=tf.constant_initializer(0.01))
 
-	# bias_initer1 =tf.constant(64, shape=[8, 8], dtype=tf.float32)
-	# bias_initer2 =tf.constant(64, shape=[8, 8], dtype=tf.float32)
-	# bias_initer3 =tf.constant(128, shape=[8, 8], dtype=tf.float32)
-	# bias_initer4 =tf.constant(128, shape=[8, 8], dtype=tf.float32)
-	# bias_initer = tf.stack([bias_initer1, bias_initer2, bias_initer3, bias_initer4], axis=2)
+	bias_init = [64, 64, 128, 128]
 	conv8 = tf.layers.conv2d(	inputs=conv6_relu,
 								filters=4,
 								kernel_size=[1, 1],
@@ -166,7 +162,7 @@ with tf.variable_scope("RPNlayers"):
 								activation=None,
 								name='conv8',
 								kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.01), 
-								bias_initializer=tf.constant_initializer(64)) # TODO bias initializer
+								bias_initializer=tf.constant_initializer(bias_init, verify_shape=True))
 
 ############## CLS ##############
 
@@ -296,7 +292,7 @@ def run_rpn_cls(sess):
 		print('\t(Testing) Accuracy at epoch {0}: {1} '.format(epoch, total_acc/num_batches))
 		print('\t(Testing) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
 
-def run_rpn_reg(sess):
+def run_rpn_reg_cls(sess):
 	pass
 
 with tf.Session() as sess:
