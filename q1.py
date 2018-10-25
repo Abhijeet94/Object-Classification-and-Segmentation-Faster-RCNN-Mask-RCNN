@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 import pdb
 import time
 from PIL import Image
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 
 x = tf.placeholder(dtype = tf.float32, shape = [None, 128, 128, 3])
@@ -202,12 +204,10 @@ def getIoU(t1, t2):
 	t2Area = (t2xb - t2xa) * (t2yb - t2ya)
 
 	iou = intersectionArea / (t1Area + t2Area - intersectionArea)
-	return iou
+	return tf.expand_dims(iou, 3)
 
 peopleIoU = getIoU(peopleBboxModBig, myBboxModBig) # None X 8 X 8 X 1
 carIoU = getIoU(carBboxModBig, myBboxModBig)
-
-pdb.set_trace()
 
 maxIoU = tf.math.maximum(peopleIoU, carIoU)
 mask = tf.where(tf.logical_and(tf.less(maxIoU, 0.5), tf.greater(maxIoU, 0.1)), x=tf.ones_like(maxIoU), y=tf.zeros_like(maxIoU))
