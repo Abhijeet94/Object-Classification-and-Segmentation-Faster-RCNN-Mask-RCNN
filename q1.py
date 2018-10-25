@@ -211,10 +211,10 @@ peopleIoU = getIoU(peopleBboxModBig, myBboxModBig) # None X 8 X 8 X 1
 carIoU = getIoU(carBboxModBig, myBboxModBig)
 
 maxIoU = tf.math.maximum(peopleIoU, carIoU)
-mask = tf.where(tf.logical_and(tf.less(maxIoU, 0.5), tf.greater(maxIoU, 0.1)), x=tf.ones_like(maxIoU), y=tf.zeros_like(maxIoU))
+mask = tf.where(tf.logical_and(tf.less(maxIoU, 0.5), tf.greater(maxIoU, 0.1)), x=tf.zeros_like(maxIoU), y=tf.ones_like(maxIoU))
 gtLabels_approx = tf.where(tf.greater_equal(maxIoU, 0.5), x=tf.ones_like(maxIoU), y=tf.zeros_like(maxIoU))
 
-loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=gtLabels_approx * mask, logits=conv7 * mask)
+loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=gtLabels_approx, logits=conv7) * mask
 optimizer = tf.train.AdamOptimizer(learning_rate).minimize(loss)
 # accuracy = None # TODO 
 
@@ -239,5 +239,5 @@ with tf.Session() as sess:
 
 	for epoch in range(epochs):
 
-		l, conv7Run, peopleBboxModRun, myBboxModBigRun, peopleBboxModBigRun, carBboxModBigRun, maskRun, gtLabels_approxRun, carIoURun, peopleIoURun = sess.run([loss, conv7, peopleBboxMod, myBboxModBig, peopleBboxModBig, carBboxModBig, mask, gtLabels_approx, carIoU, peopleIoU], feed_dict={x: images, peopleBbox: peoples, carBbox: cars})
+		l, _ = sess.run([loss, optimizer], feed_dict={x: images, peopleBbox: peoples, carBbox: cars})
 		pdb.set_trace()
