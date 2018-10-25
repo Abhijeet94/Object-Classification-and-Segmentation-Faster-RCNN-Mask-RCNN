@@ -7,12 +7,30 @@ import time
 from PIL import Image
 import cv2
 import os
+
+from helpers import *
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
+# If using placeholders
+# Testing
+# image1 = cv2.imread('P&C dataset/img/000000.jpg')
+# image2 = cv2.imread('P&C dataset/img/000012.jpg')
+# images = np.stack([image1, image2])
+# peoples = np.asarray([[3,38,55,88],[81,19,21,60]])
+# cars = np.asarray([[7,15,62,104],[37,104,65,15]])
+# # l, conv7Run, peopleBboxModRun, myBboxModBigRun, peopleBboxModBigRun, carBboxModBigRun, maskRun, gtLabels_approxRun, carIoURun, peopleIoURun = sess.run([loss, conv7, peopleBboxMod, myBboxModBig, peopleBboxModBig, carBboxModBig, mask, gtLabels_approx, carIoU, peopleIoU], feed_dict={x: images, peopleBbox: peoples, carBbox: cars})
+# x = tf.placeholder(dtype = tf.float32, shape = [None, 128, 128, 3])
+# peopleBbox = tf.placeholder(dtype = tf.float32, shape = [None, 4])
+# carBbox = tf.placeholder(dtype = tf.float32, shape = [None, 4])
 
-x = tf.placeholder(dtype = tf.float32, shape = [None, 128, 128, 3])
-peopleBbox = tf.placeholder(dtype = tf.float32, shape = [None, 4])
-carBbox = tf.placeholder(dtype = tf.float32, shape = [None, 4])
+# If using batches
+X, Y1, Y2 = getXandY()
+x, peopleBbox, carBbox = tf.train.shuffle_batch([X, Y1, Y2],	batch_size=2,
+															capacity=2000,
+															min_after_dequeue=1,
+															seed=0.01,
+															enqueue_many=True,
+															allow_smaller_final_batch=True)
 
 trainingPhase = tf.Variable(True)
 learning_rate = 0.001
@@ -216,7 +234,7 @@ gtLabels_approx = tf.where(tf.greater_equal(maxIoU, 0.5), x=tf.ones_like(maxIoU)
 
 loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=gtLabels_approx, logits=conv7) * mask
 optimizer = tf.train.AdamOptimizer(learning_rate).minimize(loss)
-# accuracy = None # TODO 
+accuracy = tf.reduce_mean(loss)
 
 
 ############## REG ##############
@@ -224,20 +242,12 @@ optimizer = tf.train.AdamOptimizer(learning_rate).minimize(loss)
 
 ############## RUN SESSION ##############
 
-epochs = 1
-
-# Testing
-# image1 = cv2.imread('P&C dataset/img/000000.jpg')
-# image2 = cv2.imread('P&C dataset/img/000012.jpg')
-# images = np.stack([image1, image2])
-# peoples = np.asarray([[3,38,55,88],[81,19,21,60]])
-# cars = np.asarray([[7,15,62,104],[37,104,65,15]])
-# # l, conv7Run, peopleBboxModRun, myBboxModBigRun, peopleBboxModBigRun, carBboxModBigRun, maskRun, gtLabels_approxRun, carIoURun, peopleIoURun = sess.run([loss, conv7, peopleBboxMod, myBboxModBig, peopleBboxModBig, carBboxModBig, mask, gtLabels_approx, carIoU, peopleIoU], feed_dict={x: images, peopleBbox: peoples, carBbox: cars})
+epochs = 20
 
 with tf.Session() as sess:
 	sess.run(tf.global_variables_initializer())
+	tf.train.start_queue_runners(sess)
 
 	for epoch in range(epochs):
-
-		l, _ = sess.run([loss, optimizer], feed_dict={x: images, peopleBbox: peoples, carBbox: cars})
-		pdb.set_trace()
+		l, _, acc = sess.run([loss, optimizer, accuracy])
+		print acc
