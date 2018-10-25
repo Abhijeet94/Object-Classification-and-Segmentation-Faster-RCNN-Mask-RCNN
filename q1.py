@@ -182,8 +182,27 @@ def getIoU(t1, t2):
 	# In the last (4) dimension, the first two are box centers and 
 	# last two are width, height
 
-	
-	pass
+	t1xa = tf.clip_by_value(t1[:, :, :, 0] - t1[:, :, :, 2]/2.0, 0.0, 127.0)
+	t1ya = tf.clip_by_value(t1[:, :, :, 1] - t1[:, :, :, 3]/2.0, 0.0, 127.0)
+	t1xb = tf.clip_by_value(t1[:, :, :, 0] + t1[:, :, :, 2]/2.0, 0.0, 127.0)
+	t1yb = tf.clip_by_value(t1[:, :, :, 1] + t1[:, :, :, 3]/2.0, 0.0, 127.0)
+
+	t2xa = tf.clip_by_value(t2[:, :, :, 0] - t2[:, :, :, 2]/2.0, 0.0, 127.0)
+	t2ya = tf.clip_by_value(t2[:, :, :, 1] - t2[:, :, :, 3]/2.0, 0.0, 127.0)
+	t2xb = tf.clip_by_value(t2[:, :, :, 0] + t2[:, :, :, 2]/2.0, 0.0, 127.0)
+	t2yb = tf.clip_by_value(t2[:, :, :, 1] + t2[:, :, :, 3]/2.0, 0.0, 127.0)
+
+	xa = tf.math.maximum(t1xa, t2xa)
+	ya = tf.math.maximum(t1ya, t2ya)
+	xb = tf.math.minimum(t1xb, t2xb)
+	yb = tf.math.minimum(t1yb, t2yb)
+
+	intersectionArea = tf.math.maximum(tf.zeros_like(xa), xb - xa) * tf.math.maximum(tf.zeros_like(ya), yb - ya)
+	t1Area = (t1xb - t1xa) * (t1yb - t1ya)
+	t2Area = (t2xb - t2xa) * (t2yb - t2ya)
+
+	iou = intersectionArea / (t1Area + t2Area - intersectionArea)
+	return iou
 
 peopleIoU = getIoU(peopleBboxModBig, myBboxModBig) # None X 8 X 8 X 1
 carIoU = getIoU(carBboxModBig, myBboxModBig)
