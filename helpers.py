@@ -30,4 +30,7 @@ def getXandY():
 	X = getAllImages('P&C dataset/img')
 	Y1 = getBbox('label_car.txt')
 	Y2 = getBbox('label_people.txt')
-	return X, Y1, Y2
+
+	train_end = int(X.shape[0] * 0.8)
+	return X[0:train_end], Y1[0:train_end], Y2[0:train_end],\
+			X[train_end:], Y1[train_end:], Y2[train_end:]

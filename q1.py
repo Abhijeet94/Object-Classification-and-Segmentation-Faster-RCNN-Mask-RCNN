@@ -24,16 +24,24 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 # carBbox = tf.placeholder(dtype = tf.float32, shape = [None, 4])
 
 # If using batches
-X, Y1, Y2 = getXandY()
-x, peopleBbox, carBbox = tf.train.shuffle_batch([X, Y1, Y2],	batch_size=2,
-															capacity=2000,
-															min_after_dequeue=1,
-															seed=0.01,
-															enqueue_many=True,
-															allow_smaller_final_batch=True)
 
+batchSize = 2
 trainingPhase = tf.Variable(True)
-learning_rate = 0.001
+Xtrain, Y1train, Y2train, Xtest, Y1test, Y2test = getXandY()
+totalDataTrain = Xtrain.shape[0]
+totalDataTest = Xtest.shape[0]
+
+train_data = tf.data.Dataset.from_tensor_slices((Xtrain, Y1train, Y2train))
+train_data = train_data.batch(batchSize)
+test_data = tf.data.Dataset.from_tensor_slices((Xtest, Y1test, Y2test))
+test_data = test_data.batch(batchSize)
+
+iterator = tf.data.Iterator.from_structure(train_data.output_types, train_data.output_shapes)
+train_init = iterator.make_initializer(train_data) 
+test_init = iterator.make_initializer(test_data) 
+
+x, peopleBbox, carBbox = iterator.get_next()
+
 
 with tf.variable_scope("baseLayers"):
 	conv1 = tf.layers.conv2d(	inputs=x,
@@ -232,8 +240,10 @@ maxIoU = tf.math.maximum(peopleIoU, carIoU)
 mask = tf.where(tf.logical_and(tf.less(maxIoU, 0.5), tf.greater(maxIoU, 0.1)), x=tf.zeros_like(maxIoU), y=tf.ones_like(maxIoU))
 gtLabels_approx = tf.where(tf.greater_equal(maxIoU, 0.5), x=tf.ones_like(maxIoU), y=tf.zeros_like(maxIoU))
 
+learning_rate = 0.001
 loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=gtLabels_approx, logits=conv7) * mask
 optimizer = tf.train.AdamOptimizer(learning_rate).minimize(loss)
+
 accuracy = tf.reduce_mean(loss)
 
 
@@ -242,12 +252,21 @@ accuracy = tf.reduce_mean(loss)
 
 ############## RUN SESSION ##############
 
-epochs = 20
+epochs = 1
 
 with tf.Session() as sess:
 	sess.run(tf.global_variables_initializer())
-	tf.train.start_queue_runners(sess)
 
 	for epoch in range(epochs):
-		l, _, acc = sess.run([loss, optimizer, accuracy])
-		print acc
+
+		# Training
+		trainingPhase = True
+		sess.run(train_init)
+		try:
+			while True:
+				l, _, acc = sess.run([loss, optimizer, accuracy])
+				print acc
+				print l.shape
+				print '---'
+		except tf.errors.OutOfRangeError:
+			pass
