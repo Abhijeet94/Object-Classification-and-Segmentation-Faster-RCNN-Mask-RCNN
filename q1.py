@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import pdb
 import time
 from PIL import Image
+import cv2
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
@@ -221,6 +222,21 @@ optimizer = tf.train.AdamOptimizer(learning_rate).minimize(loss)
 ############## REG ##############
 
 
-# Run!
+############## RUN SESSION ##############
+
+epochs = 1
+
+image1 = cv2.imread('P&C dataset/img/000000.jpg')
+image2 = cv2.imread('P&C dataset/img/000012.jpg')
+images = np.stack([image1, image2])
+peoples = np.asarray([[3,38,55,88],[81,19,21,60]])
+cars = np.asarray([[7,15,62,104],[37,104,65,15]])
+# l, conv7Run, peopleBboxModRun, myBboxModBigRun, peopleBboxModBigRun = sess.run([loss, conv7, peopleBboxMod, myBboxModBig, peopleBboxModBig], feed_dict={x: images, peopleBbox: peoples, carBbox: cars})
+
 with tf.Session() as sess:
 	sess.run(tf.global_variables_initializer())
+
+	for epoch in range(epochs):
+
+		l, maskRun, gtLabels_approxRun, carIoURun, peopleIoURun = sess.run([loss, mask, gtLabels_approx, carIoU, peopleIoU], feed_dict={x: images, peopleBbox: peoples, carBbox: cars})
+		pdb.set_trace()
