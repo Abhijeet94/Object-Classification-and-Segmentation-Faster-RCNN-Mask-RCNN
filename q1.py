@@ -241,10 +241,14 @@ mask = tf.where(tf.logical_and(tf.less(maxIoU, 0.5), tf.greater(maxIoU, 0.1)), x
 gtLabels_approx = tf.where(tf.greater_equal(maxIoU, 0.5), x=tf.ones_like(maxIoU), y=tf.zeros_like(maxIoU))
 
 learning_rate = 0.001
+accuracyThreshold = 0.5
+
 loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=gtLabels_approx, logits=conv7) * mask
 optimizer = tf.train.AdamOptimizer(learning_rate).minimize(loss)
 
 averageLoss = tf.reduce_sum(loss) / tf.reduce_sum(mask)
+correct_preds = tf.cast(tf.equal(gtLabels_approx, tf.cast(conv7 > accuracyThreshold, tf.float32)), tf.float32) * mask
+accuracy = tf.reduce_sum(tf.cast(correct_preds, tf.float32)) / tf.reduce_sum(mask)
 
 
 ############## REG ##############
@@ -252,7 +256,7 @@ averageLoss = tf.reduce_sum(loss) / tf.reduce_sum(mask)
 
 ############## RUN SESSION ##############
 
-num_epochs = 1
+num_epochs = 3
 
 with tf.Session() as sess:
 	sess.run(tf.global_variables_initializer())
@@ -267,10 +271,9 @@ with tf.Session() as sess:
 		total_loss = 0.0
 		try:
 			while True:
-				l, _ = sess.run([averageLoss, optimizer])
+				l, _, acc = sess.run([averageLoss, optimizer, accuracy])
 				num_batches = num_batches + 1
 				total_loss = total_loss + l
-				print l
 		except tf.errors.OutOfRangeError:
 			pass
 		print('(Training) Average loss at epoch {0}: {1}'.format(epoch, total_loss/num_batches))
@@ -281,11 +284,15 @@ with tf.Session() as sess:
 		trainingPhase = False
 		sess.run(test_init)
 		num_batches = 0
+		total_loss = 0.0
+		total_acc = 0.0
 		try:
 			while True:
-				l, _, acc = sess.run([loss, accuracy])
+				l, acc = sess.run([averageLoss, accuracy])
 				num_batches = num_batches + 1
+				total_loss = total_loss + l
+				total_acc = total_acc + acc
 		except tf.errors.OutOfRangeError:
 			pass
-		print('\t(Testing) Accuracy at epoch {0}: {1} '.format(epoch, total_correct_preds/num_batches))
+		print('\t(Testing) Accuracy at epoch {0}: {1} '.format(epoch, total_acc/num_batches))
 		print('\t(Testing) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
