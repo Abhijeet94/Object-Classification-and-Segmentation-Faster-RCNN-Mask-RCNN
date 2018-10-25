@@ -238,9 +238,30 @@ averageLoss = tf.reduce_sum(loss) / tf.reduce_sum(mask)
 correct_preds = tf.cast(tf.equal(gtLabels_approx, tf.cast(conv7 > accuracyThreshold, tf.float32)), tf.float32) * mask
 accuracy = tf.reduce_sum(tf.cast(correct_preds, tf.float32)) / tf.reduce_sum(mask)
 
-
 ############## REG ##############
 
+txReg = tf.stack((	(conv8[:, :, :, 0] - myBboxModBig[:, :, :, 0]) / myBboxModBig[:, :, :, 2],
+					(conv8[:, :, :, 1] - myBboxModBig[:, :, :, 1]) / myBboxModBig[:, :, :, 3],
+					tf.log(conv8[:, :, :, 2] / myBboxModBig[:, :, :, 2]),
+					tf.log(conv8[:, :, :, 3] / myBboxModBig[:, :, :, 3])), axis=3) # (None x 8 x 8 x 4)
+
+gtValuesReg = tf.stack(( 	tf.where(tf.squeeze(peopleIoU > carIoU), peopleBboxModBig[:, :, :, 0], carBboxModBig[:, :, :, 0]),
+							tf.where(tf.squeeze(peopleIoU > carIoU), peopleBboxModBig[:, :, :, 1], carBboxModBig[:, :, :, 1]),
+							tf.where(tf.squeeze(peopleIoU > carIoU), peopleBboxModBig[:, :, :, 2], carBboxModBig[:, :, :, 2]),
+							tf.where(tf.squeeze(peopleIoU > carIoU), peopleBboxModBig[:, :, :, 3], carBboxModBig[:, :, :, 3])), axis=3)
+txStarReg = tf.stack((	(gtValuesReg[:, :, :, 0] - myBboxModBig[:, :, :, 0]) / myBboxModBig[:, :, :, 2],
+						(gtValuesReg[:, :, :, 1] - myBboxModBig[:, :, :, 1]) / myBboxModBig[:, :, :, 3],
+						tf.log(gtValuesReg[:, :, :, 2] / myBboxModBig[:, :, :, 2]),
+						tf.log(gtValuesReg[:, :, :, 3] / myBboxModBig[:, :, :, 3])), axis=3)
+
+learning_rateReg = 0.001
+lossReg = tf.losses.absolute_difference(labels=txStarReg, predictions=txReg)
+smoothLossReg = tf.where(loss < 1, 0.5 * tf.square(loss), loss - 0.5) * gtLabels_approx
+optimizerReg = tf.train.AdamOptimizer(learning_rateReg).minimize(smoothLossReg)
+
+averageSmoothLossReg = tf.reduce_sum(smoothLossReg) / tf.reduce_sum(gtLabels_approx)
+
+pdb.set_trace()
 
 ############## RUN SESSION ##############
 
@@ -253,6 +274,7 @@ def run_test(sess):
 	l, conv7Run, peopleBboxModRun, myBboxModBigRun, peopleBboxModBigRun, carBboxModBigRun, maskRun, gtLabels_approxRun, carIoURun, peopleIoURun = \
 	sess.run([loss, conv7, peopleBboxMod, myBboxModBig, peopleBboxModBig, carBboxModBig, mask, gtLabels_approx, carIoU, peopleIoU], 
 		feed_dict={x: images, peopleBbox: peoples, carBbox: cars})
+	pdb.set_trace()
 
 def run_rpn_cls(sess):
 	num_epochs = 3
