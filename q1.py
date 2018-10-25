@@ -12,19 +12,11 @@ from helpers import *
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 # If using placeholders
-# Testing
-# image1 = cv2.imread('P&C dataset/img/000000.jpg')
-# image2 = cv2.imread('P&C dataset/img/000012.jpg')
-# images = np.stack([image1, image2])
-# peoples = np.asarray([[3,38,55,88],[81,19,21,60]])
-# cars = np.asarray([[7,15,62,104],[37,104,65,15]])
-# # l, conv7Run, peopleBboxModRun, myBboxModBigRun, peopleBboxModBigRun, carBboxModBigRun, maskRun, gtLabels_approxRun, carIoURun, peopleIoURun = sess.run([loss, conv7, peopleBboxMod, myBboxModBig, peopleBboxModBig, carBboxModBig, mask, gtLabels_approx, carIoU, peopleIoU], feed_dict={x: images, peopleBbox: peoples, carBbox: cars})
 # x = tf.placeholder(dtype = tf.float32, shape = [None, 128, 128, 3])
 # peopleBbox = tf.placeholder(dtype = tf.float32, shape = [None, 4])
 # carBbox = tf.placeholder(dtype = tf.float32, shape = [None, 4])
 
 # If using batches
-
 batchSize = 2
 trainingPhase = tf.Variable(True)
 Xtrain, Y1train, Y2train, Xtest, Y1test, Y2test = getXandY()
@@ -256,11 +248,18 @@ accuracy = tf.reduce_sum(tf.cast(correct_preds, tf.float32)) / tf.reduce_sum(mas
 
 ############## RUN SESSION ##############
 
-num_epochs = 3
+def run_test(sess):
+	image1 = cv2.imread('P&C dataset/img/000000.jpg')
+	image2 = cv2.imread('P&C dataset/img/000012.jpg')
+	images = np.stack([image1, image2])
+	peoples = np.asarray([[3,38,55,88],[81,19,21,60]])
+	cars = np.asarray([[7,15,62,104],[37,104,65,15]])
+	l, conv7Run, peopleBboxModRun, myBboxModBigRun, peopleBboxModBigRun, carBboxModBigRun, maskRun, gtLabels_approxRun, carIoURun, peopleIoURun = \
+	sess.run([loss, conv7, peopleBboxMod, myBboxModBig, peopleBboxModBig, carBboxModBig, mask, gtLabels_approx, carIoU, peopleIoU], 
+		feed_dict={x: images, peopleBbox: peoples, carBbox: cars})
 
-with tf.Session() as sess:
-	sess.run(tf.global_variables_initializer())
-
+def run_rpn_cls(sess):
+	num_epochs = 3
 	for epoch in range(num_epochs):
 
 		# Training
@@ -296,3 +295,11 @@ with tf.Session() as sess:
 			pass
 		print('\t(Testing) Accuracy at epoch {0}: {1} '.format(epoch, total_acc/num_batches))
 		print('\t(Testing) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
+
+def run_rpn_reg(sess):
+	pass
+
+with tf.Session() as sess:
+	sess.run(tf.global_variables_initializer())
+	run_rpn_cls(sess)
+	
