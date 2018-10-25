@@ -133,8 +133,6 @@ with tf.variable_scope("RPNlayers"):
 								kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.01), 
 								bias_initializer=tf.constant_initializer(0.01))
 
-	conv7_sigmoid = tf.nn.sigmoid(conv7, name='conv7_sigmoid')
-
 	# bias_initer1 =tf.constant(64, shape=[8, 8], dtype=tf.float32)
 	# bias_initer2 =tf.constant(64, shape=[8, 8], dtype=tf.float32)
 	# bias_initer3 =tf.constant(128, shape=[8, 8], dtype=tf.float32)
@@ -147,4 +145,63 @@ with tf.variable_scope("RPNlayers"):
 								activation=None,
 								name='conv8',
 								kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.01), 
-								bias_initializer=tf.constant_initializer(0.01)) # TODO bias initializer
+								bias_initializer=tf.constant_initializer(64)) # TODO bias initializer
+
+############## CLS ##############
+
+peopleBboxMod = tf.stack([	peopleBbox[:, 0] + peopleBbox[:, 2]/2.0,
+							peopleBbox[:, 1] + peopleBbox[:, 3]/2.0,
+							peopleBbox[:, 2],
+							peopleBbox[:, 3]], axis=1)
+
+carBboxMod = tf.stack([	carBbox[:, 0] + carBbox[:, 2]/2.0,
+						carBbox[:, 1] + carBbox[:, 3]/2.0,
+						carBbox[:, 2],
+						carBbox[:, 3]], axis=1)
+
+anchorBoxWidth = 30
+anchorBoxHeight = 30
+
+Xmesh, Ymesh = tf.meshgrid(tf.range(tf.shape(conv7)[2]), tf.range(tf.shape(conv7)[1]))
+
+myBbox = tf.stack([	Xmesh * 16,
+					Ymesh * 16, 
+					tf.ones_like(Xmesh) * anchorBoxWidth, 
+					tf.ones_like(Ymesh) * anchorBoxHeight], axis=2)
+myBboxMod = tf.tile(tf.expand_dims(myBbox, 0), [tf.shape(conv7)[0], 1, 1, 1])
+myBboxModBig = tf.cast(myBboxMod, tf.float32)
+
+peopleBboxModBig1 = tf.tile(tf.expand_dims(peopleBboxMod, 1), [1, tf.shape(conv7)[2], 1])
+peopleBboxModBig = tf.tile(tf.expand_dims(peopleBboxModBig1, 1), [1, tf.shape(conv7)[1], 1, 1])
+
+carBboxModBig1 = tf.tile(tf.expand_dims(carBboxMod, 1), [1, tf.shape(conv7)[2], 1])
+carBboxModBig = tf.tile(tf.expand_dims(carBboxModBig1, 1), [1, tf.shape(conv7)[1], 1, 1])
+
+def getIoU(t1, t2):
+	# t1, t2 are (None X 8 X 8 X 4)
+	# In the last (4) dimension, the first two are box centers and 
+	# last two are width, height
+
+	
+	pass
+
+peopleIoU = getIoU(peopleBboxModBig, myBboxModBig) # None X 8 X 8 X 1
+carIoU = getIoU(carBboxModBig, myBboxModBig)
+
+pdb.set_trace()
+
+maxIoU = tf.math.maximum(peopleIoU, carIoU)
+mask = tf.where(tf.logical_and(tf.less(maxIoU, 0.5), tf.greater(maxIoU, 0.1)), x=tf.ones_like(maxIoU), y=tf.zeros_like(maxIoU))
+gtLabels_approx = tf.where(tf.greater_equal(maxIoU, 0.5), x=tf.ones_like(maxIoU), y=tf.zeros_like(maxIoU))
+
+loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=gtLabels_approx * mask, logits=conv7 * mask)
+optimizer = tf.train.AdamOptimizer(learning_rate).minimize(loss)
+# accuracy = None # TODO 
+
+
+############## REG ##############
+
+
+# Run!
+with tf.Session() as sess:
+	sess.run(tf.global_variables_initializer())
