@@ -234,9 +234,9 @@ accuracyThreshold_cls = 0.5
 loss_cls = tf.nn.sigmoid_cross_entropy_with_logits(labels=gtLabels_approx, logits=conv7) * mask
 optimizer_cls = tf.train.AdamOptimizer(learning_rate_cls).minimize(loss_cls)
 
-averageLoss_cls = tf.reduce_sum(loss_cls) / tf.reduce_sum(mask)
+averageLoss_cls = tf.reduce_sum(loss_cls) / tf.math.maximum(1.0, tf.reduce_sum(mask))
 correct_preds_cls = tf.cast(tf.equal(gtLabels_approx, tf.cast(conv7 > accuracyThreshold_cls, tf.float32)), tf.float32) * mask
-accuracy_cls = tf.reduce_sum(tf.cast(correct_preds_cls, tf.float32)) / tf.reduce_sum(mask)
+accuracy_cls = tf.reduce_sum(tf.cast(correct_preds_cls, tf.float32)) / tf.math.maximum(1.0, tf.reduce_sum(mask))
 
 ############## REG ##############
 
@@ -259,16 +259,14 @@ learning_rateReg = 0.001
 lossReg = tf.losses.absolute_difference(labels=txStarReg, predictions=txReg)
 smoothLossReg = tf.where(lossReg < 1, 0.5 * tf.square(lossReg), lossReg - 0.5) * gtLabels_approx
 
-regWeight = tf.reduce_sum(gtLabels_approx) / (tf.reduce_sum(gtLabels_approx) + tf.reduce_sum(mask))
-clsWeight = tf.reduce_sum(mask) / (tf.reduce_sum(gtLabels_approx) + tf.reduce_sum(mask))
+regWeight = tf.reduce_sum(gtLabels_approx) / tf.math.maximum(1.0, (tf.reduce_sum(gtLabels_approx) + tf.reduce_sum(mask)))
+clsWeight = tf.reduce_sum(mask) / tf.math.maximum(1.0, (tf.reduce_sum(gtLabels_approx) + tf.reduce_sum(mask)))
 rpnTotalLoss = regWeight * smoothLossReg + clsWeight * loss_cls 
 
 optimizerRpn = tf.train.AdamOptimizer(learning_rateReg).minimize(rpnTotalLoss)
 
-averageSmoothLossReg = tf.reduce_sum(smoothLossReg) / tf.reduce_sum(gtLabels_approx)
-avgRpnTotalLoss = tf.reduce_sum(rpnTotalLoss) / tf.reduce_sum(tf.where(rpnTotalLoss != 0, tf.ones_like(rpnTotalLoss), tf.zeros_like(rpnTotalLoss)))
-
-pdb.set_trace()
+averageSmoothLossReg = tf.reduce_sum(smoothLossReg) / tf.math.maximum(1.0, tf.reduce_sum(gtLabels_approx))
+avgRpnTotalLoss = tf.reduce_sum(rpnTotalLoss) / tf.math.maximum(1.0, tf.reduce_sum(tf.where(rpnTotalLoss != 0.0, tf.ones_like(rpnTotalLoss), tf.zeros_like(rpnTotalLoss))))
 
 ############## RUN SESSION ##############
 
@@ -343,5 +341,5 @@ def run_rpn_reg_cls(sess):
 
 with tf.Session() as sess:
 	sess.run(tf.global_variables_initializer())
-	run_rpn_cls(sess)
+	run_rpn_reg_cls(sess)
 	
