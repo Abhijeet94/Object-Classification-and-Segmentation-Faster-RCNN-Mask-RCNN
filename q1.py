@@ -228,15 +228,15 @@ maxIoU = tf.math.maximum(peopleIoU, carIoU)
 mask = tf.where(tf.logical_and(tf.less(maxIoU, 0.5), tf.greater(maxIoU, 0.1)), x=tf.zeros_like(maxIoU), y=tf.ones_like(maxIoU))
 gtLabels_approx = tf.where(tf.greater_equal(maxIoU, 0.5), x=tf.ones_like(maxIoU), y=tf.zeros_like(maxIoU))
 
-learning_rate = 0.001
-accuracyThreshold = 0.5
+learning_rate_cls = 0.001
+accuracyThreshold_cls = 0.5
 
-loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=gtLabels_approx, logits=conv7) * mask
-optimizer = tf.train.AdamOptimizer(learning_rate).minimize(loss)
+loss_cls = tf.nn.sigmoid_cross_entropy_with_logits(labels=gtLabels_approx, logits=conv7) * mask
+optimizer_cls = tf.train.AdamOptimizer(learning_rate_cls).minimize(loss_cls)
 
-averageLoss = tf.reduce_sum(loss) / tf.reduce_sum(mask)
-correct_preds = tf.cast(tf.equal(gtLabels_approx, tf.cast(conv7 > accuracyThreshold, tf.float32)), tf.float32) * mask
-accuracy = tf.reduce_sum(tf.cast(correct_preds, tf.float32)) / tf.reduce_sum(mask)
+averageLoss_cls = tf.reduce_sum(loss_cls) / tf.reduce_sum(mask)
+correct_preds_cls = tf.cast(tf.equal(gtLabels_approx, tf.cast(conv7 > accuracyThreshold_cls, tf.float32)), tf.float32) * mask
+accuracy_cls = tf.reduce_sum(tf.cast(correct_preds_cls, tf.float32)) / tf.reduce_sum(mask)
 
 ############## REG ##############
 
@@ -249,6 +249,7 @@ gtValuesReg = tf.stack(( 	tf.where(tf.squeeze(peopleIoU > carIoU), peopleBboxMod
 							tf.where(tf.squeeze(peopleIoU > carIoU), peopleBboxModBig[:, :, :, 1], carBboxModBig[:, :, :, 1]),
 							tf.where(tf.squeeze(peopleIoU > carIoU), peopleBboxModBig[:, :, :, 2], carBboxModBig[:, :, :, 2]),
 							tf.where(tf.squeeze(peopleIoU > carIoU), peopleBboxModBig[:, :, :, 3], carBboxModBig[:, :, :, 3])), axis=3)
+
 txStarReg = tf.stack((	(gtValuesReg[:, :, :, 0] - myBboxModBig[:, :, :, 0]) / myBboxModBig[:, :, :, 2],
 						(gtValuesReg[:, :, :, 1] - myBboxModBig[:, :, :, 1]) / myBboxModBig[:, :, :, 3],
 						tf.log(gtValuesReg[:, :, :, 2] / myBboxModBig[:, :, :, 2]),
@@ -256,10 +257,16 @@ txStarReg = tf.stack((	(gtValuesReg[:, :, :, 0] - myBboxModBig[:, :, :, 0]) / my
 
 learning_rateReg = 0.001
 lossReg = tf.losses.absolute_difference(labels=txStarReg, predictions=txReg)
-smoothLossReg = tf.where(loss < 1, 0.5 * tf.square(loss), loss - 0.5) * gtLabels_approx
-optimizerReg = tf.train.AdamOptimizer(learning_rateReg).minimize(smoothLossReg)
+smoothLossReg = tf.where(lossReg < 1, 0.5 * tf.square(lossReg), lossReg - 0.5) * gtLabels_approx
+
+regWeight = tf.reduce_sum(gtLabels_approx) / (tf.reduce_sum(gtLabels_approx) + tf.reduce_sum(mask))
+clsWeight = tf.reduce_sum(mask) / (tf.reduce_sum(gtLabels_approx) + tf.reduce_sum(mask))
+rpnTotalLoss = regWeight * smoothLossReg + clsWeight * loss_cls 
+
+optimizerRpn = tf.train.AdamOptimizer(learning_rateReg).minimize(rpnTotalLoss)
 
 averageSmoothLossReg = tf.reduce_sum(smoothLossReg) / tf.reduce_sum(gtLabels_approx)
+avgRpnTotalLoss = tf.reduce_sum(rpnTotalLoss) / tf.reduce_sum(tf.where(rpnTotalLoss != 0, tf.ones_like(rpnTotalLoss), tf.zeros_like(rpnTotalLoss)))
 
 pdb.set_trace()
 
@@ -272,7 +279,7 @@ def run_test(sess):
 	peoples = np.asarray([[3,38,55,88],[81,19,21,60]])
 	cars = np.asarray([[7,15,62,104],[37,104,65,15]])
 	l, conv7Run, peopleBboxModRun, myBboxModBigRun, peopleBboxModBigRun, carBboxModBigRun, maskRun, gtLabels_approxRun, carIoURun, peopleIoURun = \
-	sess.run([loss, conv7, peopleBboxMod, myBboxModBig, peopleBboxModBig, carBboxModBig, mask, gtLabels_approx, carIoU, peopleIoU], 
+	sess.run([loss_cls, conv7, peopleBboxMod, myBboxModBig, peopleBboxModBig, carBboxModBig, mask, gtLabels_approx, carIoU, peopleIoU], 
 		feed_dict={x: images, peopleBbox: peoples, carBbox: cars})
 	pdb.set_trace()
 
@@ -288,7 +295,7 @@ def run_rpn_cls(sess):
 		total_loss = 0.0
 		try:
 			while True:
-				l, _, acc = sess.run([averageLoss, optimizer, accuracy])
+				l, _, acc = sess.run([averageLoss_cls, optimizer_cls, accuracy_cls])
 				num_batches = num_batches + 1
 				total_loss = total_loss + l
 		except tf.errors.OutOfRangeError:
@@ -305,7 +312,7 @@ def run_rpn_cls(sess):
 		total_acc = 0.0
 		try:
 			while True:
-				l, acc = sess.run([averageLoss, accuracy])
+				l, acc = sess.run([averageLoss_cls, accuracy_cls])
 				num_batches = num_batches + 1
 				total_loss = total_loss + l
 				total_acc = total_acc + acc
@@ -315,7 +322,24 @@ def run_rpn_cls(sess):
 		print('\t(Testing) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
 
 def run_rpn_reg_cls(sess):
-	pass
+	num_epochs = 3
+	for epoch in range(num_epochs):
+
+		# Training
+		start_time = time.time()
+		trainingPhase = True
+		sess.run(train_init)
+		num_batches = 0
+		total_loss = 0.0
+		try:
+			while True:
+				l, _ = sess.run([avgRpnTotalLoss, optimizerRpn])
+				num_batches = num_batches + 1
+				total_loss = total_loss + l
+		except tf.errors.OutOfRangeError:
+			pass
+		print('(Training) Average loss at epoch {0}: {1}'.format(epoch, total_loss/num_batches))
+		print('(Training) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
 
 with tf.Session() as sess:
 	sess.run(tf.global_variables_initializer())
