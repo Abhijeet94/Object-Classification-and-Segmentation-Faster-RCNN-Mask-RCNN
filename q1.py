@@ -155,7 +155,7 @@ with tf.variable_scope("RPNlayers"):
 								bias_initializer=tf.constant_initializer(0.01))
 
 	bias_init = [64, 64, 128, 128]
-	conv8 = tf.layers.conv2d(	inputs=conv6_relu,
+	conv81 = tf.layers.conv2d(	inputs=conv6_relu,
 								filters=4,
 								kernel_size=[1, 1],
 								padding='same',
@@ -163,6 +163,7 @@ with tf.variable_scope("RPNlayers"):
 								name='conv8',
 								kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.01), 
 								bias_initializer=tf.constant_initializer(bias_init, verify_shape=True))
+	conv8 = tf.check_numerics(conv81, 'conv8')
 
 ############## CLS ##############
 
@@ -181,12 +182,14 @@ anchorBoxHeight = 30
 
 Xmesh, Ymesh = tf.meshgrid(tf.range(tf.shape(conv7)[2]), tf.range(tf.shape(conv7)[1]))
 
-myBbox = tf.stack([	Xmesh * 16,
-					Ymesh * 16, 
+myBbox = tf.stack([	Xmesh * 16 + 8,
+					Ymesh * 16 + 8, 																# TODO confirm the `+8`
 					tf.ones_like(Xmesh) * anchorBoxWidth, 
 					tf.ones_like(Ymesh) * anchorBoxHeight], axis=2)
 myBboxMod = tf.tile(tf.expand_dims(myBbox, 0), [tf.shape(conv7)[0], 1, 1, 1])
-myBboxModBig = tf.cast(myBboxMod, tf.float32)
+myBboxModBig1 = tf.cast(myBboxMod, tf.float32)
+
+myBboxModBig = tf.check_numerics(myBboxModBig1, 'myBboxModBig')
 
 peopleBboxModBig1 = tf.tile(tf.expand_dims(peopleBboxMod, 1), [1, tf.shape(conv7)[2], 1])
 peopleBboxModBig = tf.tile(tf.expand_dims(peopleBboxModBig1, 1), [1, tf.shape(conv7)[1], 1, 1])
@@ -240,23 +243,28 @@ accuracy_cls = tf.reduce_sum(tf.cast(correct_preds_cls, tf.float32)) / tf.math.m
 
 ############## REG ##############
 
-txReg = tf.stack((	(conv8[:, :, :, 0] - myBboxModBig[:, :, :, 0]) / myBboxModBig[:, :, :, 2],
+txReg1 = tf.stack((	(conv8[:, :, :, 0] - myBboxModBig[:, :, :, 0]) / myBboxModBig[:, :, :, 2],
 					(conv8[:, :, :, 1] - myBboxModBig[:, :, :, 1]) / myBboxModBig[:, :, :, 3],
-					tf.log(conv8[:, :, :, 2] / myBboxModBig[:, :, :, 2]),
-					tf.log(conv8[:, :, :, 3] / myBboxModBig[:, :, :, 3])), axis=3) # (None x 8 x 8 x 4)
+					tf.log((1e-10 + conv8[:, :, :, 2]) / myBboxModBig[:, :, :, 2]),
+					tf.log((1e-10 + conv8[:, :, :, 3]) / myBboxModBig[:, :, :, 3])), axis=3) # (None x 8 x 8 x 4)
+
+txReg2 = tf.where(tf.is_nan(txReg1), tf.zeros_like(txReg1), txReg1)
+txReg3 = tf.where(tf.is_inf(txReg2), tf.zeros_like(txReg2), txReg2)
+txReg = tf.check_numerics(txReg3, 'txReg')
 
 gtValuesReg = tf.stack(( 	tf.where(tf.squeeze(peopleIoU > carIoU), peopleBboxModBig[:, :, :, 0], carBboxModBig[:, :, :, 0]),
 							tf.where(tf.squeeze(peopleIoU > carIoU), peopleBboxModBig[:, :, :, 1], carBboxModBig[:, :, :, 1]),
 							tf.where(tf.squeeze(peopleIoU > carIoU), peopleBboxModBig[:, :, :, 2], carBboxModBig[:, :, :, 2]),
 							tf.where(tf.squeeze(peopleIoU > carIoU), peopleBboxModBig[:, :, :, 3], carBboxModBig[:, :, :, 3])), axis=3)
 
-txStarReg = tf.stack((	(gtValuesReg[:, :, :, 0] - myBboxModBig[:, :, :, 0]) / myBboxModBig[:, :, :, 2],
+txStarReg1 = tf.stack((	(gtValuesReg[:, :, :, 0] - myBboxModBig[:, :, :, 0]) / myBboxModBig[:, :, :, 2],
 						(gtValuesReg[:, :, :, 1] - myBboxModBig[:, :, :, 1]) / myBboxModBig[:, :, :, 3],
 						tf.log(gtValuesReg[:, :, :, 2] / myBboxModBig[:, :, :, 2]),
 						tf.log(gtValuesReg[:, :, :, 3] / myBboxModBig[:, :, :, 3])), axis=3)
+txStarReg = tf.check_numerics(txStarReg1, 'txStarReg')
 
 learning_rateReg = 0.001
-lossReg = tf.losses.absolute_difference(labels=txStarReg, predictions=txReg)
+lossReg = tf.losses.absolute_difference(labels=txStarReg, predictions=txReg)                                      # TODO confirm if abs diff
 smoothLossReg = tf.where(lossReg < 1, 0.5 * tf.square(lossReg), lossReg - 0.5) * gtLabels_approx
 
 regWeight = tf.reduce_sum(gtLabels_approx) / tf.math.maximum(1.0, (tf.reduce_sum(gtLabels_approx) + tf.reduce_sum(mask)))
@@ -267,6 +275,8 @@ optimizerRpn = tf.train.AdamOptimizer(learning_rateReg).minimize(rpnTotalLoss)
 
 averageSmoothLossReg = tf.reduce_sum(smoothLossReg) / tf.math.maximum(1.0, tf.reduce_sum(gtLabels_approx))
 avgRpnTotalLoss = tf.reduce_sum(rpnTotalLoss) / tf.math.maximum(1.0, tf.reduce_sum(tf.where(rpnTotalLoss != 0.0, tf.ones_like(rpnTotalLoss), tf.zeros_like(rpnTotalLoss))))
+
+# check_op = tf.add_check_numerics_ops()
 
 ############## RUN SESSION ##############
 
@@ -336,6 +346,11 @@ def run_rpn_reg_cls(sess):
 				total_loss = total_loss + l
 		except tf.errors.OutOfRangeError:
 			pass
+		except tf.errors.InvalidArgumentError as e:
+			print('Invalid argument error')
+			pdb.set_trace()
+		except:
+			print('Error')
 		print('(Training) Average loss at epoch {0}: {1}'.format(epoch, total_loss/num_batches))
 		print('(Training) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
 
