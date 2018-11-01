@@ -19,20 +19,24 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 # If using batches
 batchSize = 2
 trainingPhase = tf.Variable(True)
-Xtrain, Y1train, Y2train, Xtest, Y1test, Y2test = getXandY()
+trainingRPN = tf.Variable(True)
+trainingBase = tf.Variable(True)
+Xtrain, Y1train, Y2train, indicesTrain, Xtest, Y1test, Y2test, indicesTest = getXandY()
 totalDataTrain = Xtrain.shape[0]
 totalDataTest = Xtest.shape[0]
 
-train_data = tf.data.Dataset.from_tensor_slices((Xtrain, Y1train, Y2train))
+carMasks, peopleMasks = getMasks()
+
+train_data = tf.data.Dataset.from_tensor_slices((Xtrain, Y1train, Y2train, indicesTrain))
 train_data = train_data.batch(batchSize)
-test_data = tf.data.Dataset.from_tensor_slices((Xtest, Y1test, Y2test))
+test_data = tf.data.Dataset.from_tensor_slices((Xtest, Y1test, Y2test, indicesTest))
 test_data = test_data.batch(batchSize)
 
 iterator = tf.data.Iterator.from_structure(train_data.output_types, train_data.output_shapes)
 train_init = iterator.make_initializer(train_data) 
 test_init = iterator.make_initializer(test_data) 
 
-x, peopleBbox, carBbox = iterator.get_next()
+x, peopleBbox, carBbox, indicesMask = iterator.get_next()
 
 
 with tf.variable_scope("baseLayers"):
@@ -42,10 +46,12 @@ with tf.variable_scope("baseLayers"):
 								padding='same',
 								activation=None,
 								name='conv1',
+								trainable=trainingBase,
 								kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.01), 
 								bias_initializer=tf.constant_initializer(0.01))
 	conv1_bn = tf.layers.batch_normalization(	inputs=conv1,
 												name='conv1_bn',
+												trainable=trainingBase,
 												training=trainingPhase)
 
 	conv1_relu = tf.nn.relu(conv1_bn, name='conv1_relu')
@@ -62,10 +68,12 @@ with tf.variable_scope("baseLayers"):
 								padding='same',
 								activation=None,
 								name='conv2',
+								trainable=trainingBase,
 								kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.01), 
 								bias_initializer=tf.constant_initializer(0.01))
 	conv2_bn = tf.layers.batch_normalization(	inputs=conv2,
 												name='conv2_bn',
+												trainable=trainingBase,
 												training=trainingPhase)
 
 	conv2_relu = tf.nn.relu(conv2_bn, name='conv2_relu')
@@ -82,10 +90,12 @@ with tf.variable_scope("baseLayers"):
 								padding='same',
 								activation=None,
 								name='conv3',
+								trainable=trainingBase,
 								kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.01), 
 								bias_initializer=tf.constant_initializer(0.01))
 	conv3_bn = tf.layers.batch_normalization(	inputs=conv3,
 												name='conv3_bn',
+												trainable=trainingBase,
 												training=trainingPhase)
 
 	conv3_relu = tf.nn.relu(conv3_bn, name='conv3_relu')
@@ -102,10 +112,12 @@ with tf.variable_scope("baseLayers"):
 								padding='same',
 								activation=None,
 								name='conv4',
+								trainable=trainingBase,
 								kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.01), 
 								bias_initializer=tf.constant_initializer(0.01))
 	conv4_bn = tf.layers.batch_normalization(	inputs=conv4,
 												name='conv4_bn',
+												trainable=trainingBase,
 												training=trainingPhase)
 
 	conv4_relu = tf.nn.relu(conv4_bn, name='conv4_relu')
@@ -122,6 +134,7 @@ with tf.variable_scope("baseLayers"):
 								padding='same',
 								activation=None,
 								name='conv5',
+								trainable=trainingBase,
 								kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.01), 
 								bias_initializer=tf.constant_initializer(0.01))
 	conv5_bn = tf.layers.batch_normalization(	inputs=conv5,
@@ -137,10 +150,12 @@ with tf.variable_scope("RPNlayers"):
 								padding='same',
 								activation=None,
 								name='conv6',
+								trainable=trainingRPN,
 								kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.01), 
 								bias_initializer=tf.constant_initializer(0.01))
 	conv6_bn = tf.layers.batch_normalization(	inputs=conv6,
 												name='conv6_bn',
+												trainable=trainingRPN,
 												training=trainingPhase)
 
 	conv6_relu = tf.nn.relu(conv6_bn, name='conv6_relu')
@@ -151,6 +166,7 @@ with tf.variable_scope("RPNlayers"):
 								padding='same',
 								activation=None,
 								name='conv7',
+								trainable=trainingRPN,
 								kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.01), 
 								bias_initializer=tf.constant_initializer(0.01))
 
@@ -161,6 +177,7 @@ with tf.variable_scope("RPNlayers"):
 								padding='same',
 								activation=None,
 								name='conv8',
+								trainable=trainingRPN,
 								kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.01), 
 								bias_initializer=tf.constant_initializer(bias_init, verify_shape=True))
 	conv8 = tf.check_numerics(conv81, 'conv8')
@@ -183,7 +200,7 @@ anchorBoxHeight = 30
 Xmesh, Ymesh = tf.meshgrid(tf.range(tf.shape(conv7)[2]), tf.range(tf.shape(conv7)[1]))
 
 myBbox = tf.stack([	Xmesh * 16 + 8,
-					Ymesh * 16 + 8, 																# TODO confirm the `+8`
+					Ymesh * 16 + 8, 																
 					tf.ones_like(Xmesh) * anchorBoxWidth, 
 					tf.ones_like(Ymesh) * anchorBoxHeight], axis=2)
 myBboxMod = tf.tile(tf.expand_dims(myBbox, 0), [tf.shape(conv7)[0], 1, 1, 1])
@@ -238,7 +255,7 @@ loss_cls = tf.nn.sigmoid_cross_entropy_with_logits(labels=gtLabels_approx, logit
 optimizer_cls = tf.train.AdamOptimizer(learning_rate_cls).minimize(loss_cls)
 
 averageLoss_cls = tf.reduce_sum(loss_cls) / tf.math.maximum(1.0, tf.reduce_sum(mask))
-correct_preds_cls = tf.cast(tf.equal(gtLabels_approx, tf.cast(conv7 > accuracyThreshold_cls, tf.float32)), tf.float32) * mask
+correct_preds_cls = tf.cast(tf.equal(gtLabels_approx, tf.cast(tf.nn.sigmoid(conv7) > accuracyThreshold_cls, tf.float32)), tf.float32) * mask
 accuracy_cls = tf.reduce_sum(tf.cast(correct_preds_cls, tf.float32)) / tf.math.maximum(1.0, tf.reduce_sum(mask))
 
 ############## REG ##############
@@ -264,7 +281,7 @@ txStarReg1 = tf.stack((	(gtValuesReg[:, :, :, 0] - myBboxModBig[:, :, :, 0]) / m
 txStarReg = tf.check_numerics(txStarReg1, 'txStarReg')
 
 learning_rateReg = 0.001
-lossReg = tf.losses.absolute_difference(labels=txStarReg, predictions=txReg)                                      # TODO confirm if abs diff
+lossReg = tf.losses.absolute_difference(labels=txStarReg, predictions=txReg)                                      
 smoothLossReg = tf.where(lossReg < 1, 0.5 * tf.square(lossReg), lossReg - 0.5) * gtLabels_approx
 
 regWeight = tf.reduce_sum(gtLabels_approx) / tf.math.maximum(1.0, (tf.reduce_sum(gtLabels_approx) + tf.reduce_sum(mask)))
@@ -276,7 +293,130 @@ optimizerRpn = tf.train.AdamOptimizer(learning_rateReg).minimize(rpnTotalLoss)
 averageSmoothLossReg = tf.reduce_sum(smoothLossReg) / tf.math.maximum(1.0, tf.reduce_sum(gtLabels_approx))
 avgRpnTotalLoss = tf.reduce_sum(rpnTotalLoss) / tf.math.maximum(1.0, tf.reduce_sum(tf.where(rpnTotalLoss != 0.0, tf.ones_like(rpnTotalLoss), tf.zeros_like(rpnTotalLoss))))
 
-# check_op = tf.add_check_numerics_ops()
+############## PEOPLE/CAR CLASSIFICATION ##############
+
+batch_size = tf.shape(conv7)[0]
+
+reshapedConv7 = tf.reshape(conv7, [batch_size, -1, 1])
+reshapedConv8 = tf.reshape(conv8, [batch_size, -1, 4])
+argSortedConv7 = tf.cast(tf.contrib.framework.argsort(reshapedConv7, axis=1, direction='DESCENDING'), tf.int64)
+bestBboxIndex_test = tf.cast(argSortedConv7[:, 0, :], tf.int64)
+best2BboxIndex_test = tf.cast(argSortedConv7[:, 1, :], tf.int64)
+
+bestBboxIndex_train = tf.argmax(tf.reshape(peopleIoU, [batch_size, -1, 1]), axis=1)
+best2BboxIndex_train = tf.argmax(tf.reshape(carIoU, [batch_size, -1, 1]), axis=1)
+
+batchIndices = tf.cast(tf.expand_dims(tf.range(batch_size), 1), tf.int64)
+bbtestGatherIndices = tf.concat([batchIndices, bestBboxIndex_test[:, 0:1]], axis=1)
+bestBbox_test = tf.gather_nd(reshapedConv8, bbtestGatherIndices)
+bb2testGatherIndices = tf.concat([batchIndices, best2BboxIndex_test[:, 0:1]], axis=1)
+best2Bbox_test = tf.gather_nd(reshapedConv8, bb2testGatherIndices)
+
+bbtrainGatherIndices = tf.concat([batchIndices, bestBboxIndex_train[:, 0:1]], axis=1)
+bestBbox_train = tf.gather_nd(reshapedConv8, bbtrainGatherIndices)
+bb2trainGatherIndices = tf.concat([batchIndices, best2BboxIndex_train[:, 0:1]], axis=1)
+best2Bbox_train = tf.gather_nd(reshapedConv8, bb2trainGatherIndices)
+
+bestBboxArg = tf.cond(trainingPhase, lambda: bestBboxIndex_train, lambda: bestBboxIndex_test)
+best2BboxArg = tf.cond(trainingPhase, lambda: best2BboxIndex_train, lambda: best2BboxIndex_test)
+
+bestBbox = tf.cond(trainingPhase, lambda: bestBbox_train, lambda: bestBbox_test)
+best2Bbox = tf.cond(trainingPhase, lambda: best2Bbox_train, lambda: best2Bbox_test)
+
+theta1 = tf.stack((	bestBbox[:, 2] / 128.0,
+					tf.zeros([batch_size], tf.float32),
+					(bestBbox[:, 0] - 64)/ 64.0,
+					tf.zeros([batch_size], tf.float32),
+					bestBbox[:, 3] / 128.0,
+					(bestBbox[:, 1] - 64)/ 64.0), axis=1)
+
+theta2 = tf.stack((	best2Bbox[:, 2] / 128.0,
+					tf.zeros([batch_size], tf.float32),
+					(best2Bbox[:, 0] - 64)/ 64.0,
+					tf.zeros([batch_size], tf.float32),
+					best2Bbox[:, 3] / 128.0,
+					(best2Bbox[:, 1] - 64)/ 64.0), axis=1)
+theta = tf.concat((theta1, theta2), axis=0)
+
+from spatial_transformer import *
+
+conv5stackedTwice = tf.tile(conv5, [2, 1, 1, 1])
+transformerOutput = transformer(conv5stackedTwice, theta, (4,4))
+transformerOutput.set_shape([None, 4, 4, 128]) 
+
+with tf.variable_scope("FRCNN_cls"):
+	conv9 = tf.layers.conv2d(	inputs=transformerOutput,
+								filters=128,
+								kernel_size=[1, 1],
+								padding='same',
+								activation=None,
+								name='conv9',
+								kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.01), 
+								bias_initializer=tf.constant_initializer(0.01))
+	conv9_bn = tf.layers.batch_normalization(	inputs=conv9,
+												name='conv9_bn',
+												training=trainingPhase)
+
+	conv9_relu = tf.nn.relu(conv9_bn, name='conv9_relu')
+
+	conv10 = tf.layers.conv2d(	inputs=conv9_relu,
+								filters=128,
+								kernel_size=[1, 1],
+								padding='same',
+								activation=None,
+								name='conv10',
+								kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.01), 
+								bias_initializer=tf.constant_initializer(0.01))
+	conv10_bn = tf.layers.batch_normalization(	inputs=conv10,
+												name='conv10_bn',
+												training=trainingPhase)
+
+	conv10_relu = tf.nn.relu(conv10_bn, name='conv10_relu')
+
+	feat_dim_conv10 = conv10_relu.shape[1] * conv10_relu.shape[2] * conv10_relu.shape[3]
+	conv10_flat = tf.reshape(conv10_relu, [-1, feat_dim_conv10])
+
+	fc1 = tf.layers.dense(	inputs=conv10_flat, 
+							units=2, 
+							activation=None,
+							name='fc1')
+
+# Now, to calculate loss, you need the ground truth (one hot)
+# For that you can maybe check whether peopleIoU is bigger or carIoU at that point
+# and accordingly create the one hot vector
+# But now, we have people, car in that order.. for the first (batch_size), it is people, 
+# for the next (batch_size), it is car
+
+# People = 0
+# Car    = 1
+
+gtValuesClsFrcnn = tf.where(tf.squeeze(peopleIoU > carIoU), tf.zeros_like(peopleIoU), tf.ones_like(carIoU))
+gtValuesClsFrcnnReshape = tf.cast(tf.reshape(gtValuesClsFrcnn, [batch_size, -1, 1]), tf.int64)
+
+bestBboxArgIndices = tf.concat([batchIndices, bestBboxArg[:, 0:1]], axis=1)
+firstGt = tf.gather_nd(gtValuesClsFrcnnReshape, bestBboxArgIndices)
+best2BboxArgIndices = tf.concat([batchIndices, best2BboxArg[:, 0:1]], axis=1)
+secondGt = tf.gather_nd(gtValuesClsFrcnnReshape, best2BboxArgIndices)
+gtValFrcnn = tf.concat((firstGt, secondGt), axis=0) # None x 1
+
+gt_cls_frcnn = tf.one_hot([0] * batchSize + [1] * batchSize, depth=2) # None x 2
+loss_frcnn_cls = tf.nn.softmax_cross_entropy_with_logits_v2(labels=gt_cls_frcnn, logits=fc1)
+
+preds_frcnn_cls = tf.nn.softmax(fc1)
+correct_preds_frcnn_cls = tf.equal(tf.argmax(preds_frcnn_cls, axis=1), gtValFrcnn)
+accuracy_frcnn_cls = tf.reduce_mean(tf.cast(correct_preds_frcnn_cls, tf.float32))
+
+
+############## MASK RCNN ##############
+
+
+
+pdb.set_trace()
+
+
+
+
+
 
 ############## RUN SESSION ##############
 
@@ -291,8 +431,9 @@ def run_test(sess):
 		feed_dict={x: images, peopleBbox: peoples, carBbox: cars})
 	pdb.set_trace()
 
-def run_rpn_cls(sess):
-	num_epochs = 3
+def run_rpn_cls(sess, num_epochs = 3):
+	trainingBase = True
+	trainingRPN = True
 	for epoch in range(num_epochs):
 
 		# Training
@@ -329,8 +470,9 @@ def run_rpn_cls(sess):
 		print('\t(Testing) Accuracy at epoch {0}: {1} '.format(epoch, total_acc/num_batches))
 		print('\t(Testing) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
 
-def run_rpn_reg_cls(sess):
-	num_epochs = 3
+def run_rpn_reg_cls(sess, num_epochs = 3):
+	trainingBase = True
+	trainingRPN = True
 	for epoch in range(num_epochs):
 
 		# Training
@@ -356,5 +498,6 @@ def run_rpn_reg_cls(sess):
 
 with tf.Session() as sess:
 	sess.run(tf.global_variables_initializer())
-	run_rpn_reg_cls(sess)
+	# run_rpn_cls(sess)
+	# run_rpn_reg_cls(sess)
 	
