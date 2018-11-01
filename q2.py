@@ -21,6 +21,8 @@ batchSize = 2
 trainingPhase = tf.Variable(True)
 trainingRPN = tf.Variable(True)
 trainingBase = tf.Variable(True)
+trainingFrcnn = tf.Variable(True)
+
 Xtrain, Y1train, Y2train, indicesTrain, Xtest, Y1test, Y2test, indicesTest = getXandY()
 totalDataTrain = Xtrain.shape[0]
 totalDataTest = Xtest.shape[0]
@@ -351,10 +353,12 @@ with tf.variable_scope("FRCNN_cls"):
 								padding='same',
 								activation=None,
 								name='conv9',
+								trainable=trainingFrcnn,
 								kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.01), 
 								bias_initializer=tf.constant_initializer(0.01))
 	conv9_bn = tf.layers.batch_normalization(	inputs=conv9,
 												name='conv9_bn',
+												trainable=trainingFrcnn,
 												training=trainingPhase)
 
 	conv9_relu = tf.nn.relu(conv9_bn, name='conv9_relu')
@@ -365,10 +369,12 @@ with tf.variable_scope("FRCNN_cls"):
 								padding='same',
 								activation=None,
 								name='conv10',
+								trainable=trainingFrcnn,
 								kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.01), 
 								bias_initializer=tf.constant_initializer(0.01))
 	conv10_bn = tf.layers.batch_normalization(	inputs=conv10,
 												name='conv10_bn',
+												trainable=trainingFrcnn,
 												training=trainingPhase)
 
 	conv10_relu = tf.nn.relu(conv10_bn, name='conv10_relu')
@@ -379,7 +385,8 @@ with tf.variable_scope("FRCNN_cls"):
 	fc1 = tf.layers.dense(	inputs=conv10_flat, 
 							units=2, 
 							activation=None,
-							name='fc1')
+							name='fc1',
+							trainable=trainingFrcnn)
 
 # Now, to calculate loss, you need the ground truth (one hot)
 # For that you can maybe check whether peopleIoU is bigger or carIoU at that point
@@ -406,12 +413,18 @@ preds_frcnn_cls = tf.nn.softmax(fc1)
 correct_preds_frcnn_cls = tf.equal(tf.argmax(preds_frcnn_cls, axis=1), gtValFrcnn)
 accuracy_frcnn_cls = tf.reduce_mean(tf.cast(correct_preds_frcnn_cls, tf.float32))
 
+learning_rate_frcnn_cls = 0.001
+optimizer_frcnn_cls = tf.train.AdamOptimizer(learning_rate_frcnn_cls).minimize(loss_frcnn_cls)
+
+learning_rate_frcnnCls_rpn = 0.001
+loss_frcnnCls_rpn = 2 * loss_frcnn_cls + rpnTotalLoss
+optimizer_frcnnCls_rpn = tf.train.AdamOptimizer(learning_rate_frcnnCls_rpn).minimize(loss_frcnnCls_rpn)
 
 ############## MASK RCNN ##############
 
 
 
-pdb.set_trace()
+# pdb.set_trace()
 
 
 
@@ -432,8 +445,10 @@ def run_test(sess):
 	pdb.set_trace()
 
 def run_rpn_cls(sess, num_epochs = 3):
+	print 'RPN cls'
 	trainingBase = True
 	trainingRPN = True
+	trainingFrcnn = False
 	for epoch in range(num_epochs):
 
 		# Training
@@ -442,37 +457,42 @@ def run_rpn_cls(sess, num_epochs = 3):
 		sess.run(train_init)
 		num_batches = 0
 		total_loss = 0.0
+		total_acc = 0.0
 		try:
 			while True:
 				l, _, acc = sess.run([averageLoss_cls, optimizer_cls, accuracy_cls])
 				num_batches = num_batches + 1
 				total_loss = total_loss + l
-		except tf.errors.OutOfRangeError:
-			pass
-		print('(Training) Average loss at epoch {0}: {1}'.format(epoch, total_loss/num_batches))
-		print('(Training) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
-
-		# Testing
-		start_time = time.time()
-		trainingPhase = False
-		sess.run(test_init)
-		num_batches = 0
-		total_loss = 0.0
-		total_acc = 0.0
-		try:
-			while True:
-				l, acc = sess.run([averageLoss_cls, accuracy_cls])
-				num_batches = num_batches + 1
-				total_loss = total_loss + l
 				total_acc = total_acc + acc
 		except tf.errors.OutOfRangeError:
 			pass
-		print('\t(Testing) Accuracy at epoch {0}: {1} '.format(epoch, total_acc/num_batches))
-		print('\t(Testing) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
+		print('(Training) Average loss at epoch {0}: {1}'.format(epoch, total_loss/num_batches))
+		print('(Training) Accuracy at epoch {0}: {1} '.format(epoch, total_acc/num_batches))
+		print('(Training) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
+
+		# # Testing
+		# start_time = time.time()
+		# trainingPhase = False
+		# sess.run(test_init)
+		# num_batches = 0
+		# total_loss = 0.0
+		# total_acc = 0.0
+		# try:
+		# 	while True:
+		# 		l, acc = sess.run([averageLoss_cls, accuracy_cls])
+		# 		num_batches = num_batches + 1
+		# 		total_loss = total_loss + l
+		# 		total_acc = total_acc + acc
+		# except tf.errors.OutOfRangeError:
+		# 	pass
+		# print('\t(Testing) Accuracy at epoch {0}: {1} '.format(epoch, total_acc/num_batches))
+		# print('\t(Testing) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
 
 def run_rpn_reg_cls(sess, num_epochs = 3):
+	print 'RPN reg cls'
 	trainingBase = True
 	trainingRPN = True
+	trainingFrcnn = False
 	for epoch in range(num_epochs):
 
 		# Training
@@ -496,8 +516,77 @@ def run_rpn_reg_cls(sess, num_epochs = 3):
 		print('(Training) Average loss at epoch {0}: {1}'.format(epoch, total_loss/num_batches))
 		print('(Training) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
 
+def run_frcnn_cls(sess, num_epochs = 3, trainBase=False):
+	print 'FRCNN cls'
+	trainingBase = trainBase
+	trainingRPN = False
+	trainingFrcnn = True
+
+	for epoch in range(num_epochs):
+
+		# Training
+		start_time = time.time()
+		trainingPhase = True
+		sess.run(train_init)
+		num_batches = 0
+		total_loss = 0.0
+		try:
+			while True:
+				l, _ = sess.run([loss_frcnn_cls, optimizer_frcnn_cls])
+				num_batches = num_batches + 1
+				total_loss = total_loss + l
+		except tf.errors.OutOfRangeError:
+			pass
+		except tf.errors.InvalidArgumentError as e:
+			print('Invalid argument error')
+			pdb.set_trace()
+		except:
+			print('Error')
+		print('(Training) Average loss at epoch {0}: {1}'.format(epoch, total_loss/num_batches))
+		print('(Training) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
+
+def run_frcnn_rpn(sess, num_epochs=3):
+	print 'FRCNN RPN'
+	trainingBase = True
+	trainingRPN = True
+	trainingFrcnn = True
+
+	for epoch in range(num_epochs):
+
+		# Training
+		start_time = time.time()
+		trainingPhase = True
+		sess.run(train_init)
+		num_batches = 0
+		total_loss = 0.0
+		total_acc = 0.0
+		try:
+			while True:
+				l, _, acc = sess.run([loss_frcnnCls_rpn, optimizer_frcnnCls_rpn, accuracy_frcnn_cls])
+				num_batches = num_batches + 1
+				total_loss = total_loss + l
+				total_acc = total_acc + acc
+		except tf.errors.OutOfRangeError:
+			pass
+		except tf.errors.InvalidArgumentError as e:
+			print('Invalid argument error')
+			pdb.set_trace()
+		except:
+			print('Error')
+		print('(Training) Average loss at epoch {0}: {1}'.format(epoch, total_loss/num_batches))
+		print('(Training) Accuracy at epoch {0}: {1} '.format(epoch, total_acc/num_batches))
+		print('(Training) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
+
+def alternateTraining(sess):
+	run_rpn_cls(sess, num_epochs=5)
+	run_rpn_reg_cls(sess, num_epochs=10)
+	run_frcnn_cls(sess, num_epochs=10)
+	run_frcnn_rpn(sess, num_epochs=15)
+
 with tf.Session() as sess:
 	sess.run(tf.global_variables_initializer())
 	# run_rpn_cls(sess)
 	# run_rpn_reg_cls(sess)
+
+	alternateTraining(sess)
 	

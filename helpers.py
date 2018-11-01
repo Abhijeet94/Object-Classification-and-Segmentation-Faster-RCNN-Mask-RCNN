@@ -14,7 +14,11 @@ def getAllImages(folderPath):
 		if os.path.isfile(filePath):
 			images.append(cv2.imread(filePath))
 
-	return np.asarray(images, dtype=np.float32)
+	I = np.asarray(images, dtype=np.float32)
+	meanImage = np.mean(I, axis=0)
+	meanStd = np.std(I, axis=0)
+	I = (I - meanImage) / meanStd
+	return I
 
 def getAllMasks(folderPath):
 	if folderPath[len(folderPath) - 1] == '/':
