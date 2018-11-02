@@ -11,6 +11,8 @@ import os
 from helpers import *
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
+tf.reset_default_graph()
+
 # If using placeholders
 # x = tf.placeholder(dtype = tf.float32, shape = [None, 128, 128, 3])
 # peopleBbox = tf.placeholder(dtype = tf.float32, shape = [None, 4])
@@ -174,7 +176,7 @@ with tf.variable_scope("RPNlayers"):
 								kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.01), 
 								bias_initializer=tf.constant_initializer(0.01))
 
-	bias_init = [64, 64, 128, 128]
+	bias_init = [64.0, 64.0, 128.0, 128.0]
 	conv81 = tf.layers.conv2d(	inputs=conv6_relu,
 								filters=4,
 								kernel_size=[1, 1],
@@ -256,9 +258,10 @@ learning_rate_cls = 0.001
 accuracyThreshold_cls = 0.5
 
 loss_cls = tf.nn.sigmoid_cross_entropy_with_logits(labels=gtLabels_approx, logits=conv7) * mask
-optimizer_cls = tf.train.AdamOptimizer(learning_rate_cls).minimize(loss_cls)
+loss_cls_reduced = tf.reduce_sum(loss_cls) / tf.math.maximum(1.0, tf.reduce_sum(mask))
+optimizer_cls = tf.train.AdamOptimizer(learning_rate_cls).minimize(loss_cls_reduced)
 
-averageLoss_cls = tf.reduce_sum(loss_cls) / tf.math.maximum(1.0, tf.reduce_sum(mask))
+averageLoss_cls = loss_cls_reduced
 predictions_cls = tf.nn.sigmoid(conv7) > accuracyThreshold_cls
 correct_preds_cls = tf.cast(tf.equal(gtLabels_approx, tf.cast(predictions_cls, tf.float32)), tf.float32) * mask
 accuracy_cls = tf.reduce_sum(tf.cast(correct_preds_cls, tf.float32)) / tf.math.maximum(1.0, tf.reduce_sum(mask))
@@ -292,15 +295,12 @@ txStarReg = tf.check_numerics(txStarReg1, 'txStarReg')
 learning_rateReg = 0.001
 lossReg = tf.losses.absolute_difference(labels=txStarReg, predictions=txReg)                                      
 smoothLossReg = tf.where(lossReg < 1, 0.5 * tf.square(lossReg), lossReg - 0.5) * gtLabels_approx
+averageSmoothLossReg = tf.reduce_sum(smoothLossReg) / (tf.math.maximum(1.0, tf.reduce_sum(gtLabels_approx)) * 4.0)
 
-regWeight = tf.reduce_sum(gtLabels_approx) / tf.math.maximum(1.0, (tf.reduce_sum(gtLabels_approx) + tf.reduce_sum(mask)))
-clsWeight = tf.reduce_sum(mask) / tf.math.maximum(1.0, (tf.reduce_sum(gtLabels_approx) + tf.reduce_sum(mask)))
-rpnTotalLoss = regWeight * smoothLossReg + clsWeight * loss_cls 
-
+regWeight = tf.reduce_sum(mask) / tf.math.maximum(1.0, (tf.reduce_sum(gtLabels_approx) + tf.reduce_sum(mask)))
+clsWeight = tf.reduce_sum(gtLabels_approx) / tf.math.maximum(1.0, (tf.reduce_sum(gtLabels_approx) + tf.reduce_sum(mask)))
+rpnTotalLoss = regWeight * averageSmoothLossReg + clsWeight * loss_cls_reduced 
 optimizerRpn = tf.train.AdamOptimizer(learning_rateReg).minimize(rpnTotalLoss)
-
-averageSmoothLossReg = tf.reduce_sum(smoothLossReg) / tf.math.maximum(1.0, tf.reduce_sum(gtLabels_approx))
-avgRpnTotalLoss = tf.reduce_sum(rpnTotalLoss) / tf.math.maximum(1.0, tf.reduce_sum(tf.where(rpnTotalLoss != 0.0, tf.ones_like(rpnTotalLoss), tf.zeros_like(rpnTotalLoss))))
 
 ############## PEOPLE/CAR CLASSIFICATION ##############
 
@@ -349,7 +349,7 @@ theta = tf.concat((theta1, theta2), axis=0)
 
 from spatial_transformer import *
 
-conv5stackedTwice = tf.tile(conv5, [2, 1, 1, 1])
+conv5stackedTwice = tf.tile(conv5_relu, [2, 1, 1, 1])
 transformerOutput = transformer(conv5stackedTwice, theta, (4,4))
 transformerOutput.set_shape([None, 4, 4, 128]) 
 
@@ -425,7 +425,7 @@ learning_rate_frcnn_cls = 0.001
 optimizer_frcnn_cls = tf.train.AdamOptimizer(learning_rate_frcnn_cls).minimize(loss_frcnn_cls)
 
 learning_rate_frcnnCls_rpn = 0.001
-loss_frcnnCls_rpn = 2 * avg_loss_frcnn_cls + avgRpnTotalLoss
+loss_frcnnCls_rpn = 2 * avg_loss_frcnn_cls + rpnTotalLoss
 optimizer_frcnnCls_rpn = tf.train.AdamOptimizer(learning_rate_frcnnCls_rpn).minimize(loss_frcnnCls_rpn)
 
 ############## MASK RCNN ##############
@@ -448,7 +448,7 @@ def run_test(sess):
 	peoples = np.asarray([[3,38,55,88],[81,19,21,60]])
 	cars = np.asarray([[7,15,62,104],[37,104,65,15]])
 	l, conv7Run, peopleBboxModRun, myBboxModBigRun, peopleBboxModBigRun, carBboxModBigRun, maskRun, gtLabels_approxRun, carIoURun, peopleIoURun = \
-	sess.run([loss_cls, conv7, peopleBboxMod, myBboxModBig, peopleBboxModBig, carBboxModBig, mask, gtLabels_approx, carIoU, peopleIoU], 
+	sess.run([loss_cls_reduced, conv7, peopleBboxMod, myBboxModBig, peopleBboxModBig, carBboxModBig, mask, gtLabels_approx, carIoU, peopleIoU], 
 		feed_dict={x: images, peopleBbox: peoples, carBbox: cars})
 	pdb.set_trace()
 
@@ -525,9 +525,12 @@ def run_rpn_reg_cls(sess, num_epochs = 3):
 		total_loss = 0.0
 		try:
 			while True:
-				l, _ = sess.run([avgRpnTotalLoss, optimizerRpn])
+				l, _, conv8P, conv7P, g = sess.run([rpnTotalLoss, optimizerRpn, conv8, conv7, gtLabels_approx])
 				num_batches = num_batches + 1
 				total_loss = total_loss + l
+				if epoch == 10:
+					print conv8P.reshape(2, 8, 8, 4)
+					pdb.set_trace()
 		except tf.errors.OutOfRangeError:
 			pass
 		except tf.errors.InvalidArgumentError as e:
@@ -603,15 +606,15 @@ def run_frcnn_rpn(sess, num_epochs=3):
 		print('(Training) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
 
 def alternateTraining(sess):
-	# run_rpn_cls(sess, num_epochs=5)
+	run_rpn_cls(sess, num_epochs=10)
 	run_rpn_reg_cls(sess, num_epochs=20)
-	# run_frcnn_cls(sess, num_epochs=10)
+	run_frcnn_cls(sess, num_epochs=10)
 	run_frcnn_rpn(sess, num_epochs=45)
 
 with tf.Session() as sess:
 	sess.run(tf.global_variables_initializer())
-	run_rpn_cls(sess, 20)
-	# run_rpn_reg_cls(sess)
+	# run_rpn_cls(sess, 20)
+	run_rpn_reg_cls(sess, 20)
 
 	# alternateTraining(sess)
 	
