@@ -6,13 +6,10 @@ def getAllImages(folderPath):
 	if folderPath[len(folderPath) - 1] == '/':
 		folderPath = folderPath[0:-1]
 
-	listOfFiles = os.listdir(folderPath)
 	images = []
-
-	for file in listOfFiles:
-		filePath = folderPath + '/' + file
-		if os.path.isfile(filePath):
-			images.append(cv2.imread(filePath))
+	for i in range(2000):
+		imagePath = folderPath + '/{0:06d}.jpg'.format(i)
+		images.append(cv2.imread(imagePath))
 
 	I = np.asarray(images, dtype=np.float32)
 	meanImage = np.mean(I, axis=0)
@@ -24,16 +21,10 @@ def getAllMasks(folderPath):
 	if folderPath[len(folderPath) - 1] == '/':
 		folderPath = folderPath[0:-1]
 
-	listOfFiles = os.listdir(folderPath)
 	images = []
-
-	for file in listOfFiles:
-		filePath = folderPath + '/' + file
-		if os.path.isfile(filePath):
-			images.append(cv2.imread(filePath))
-			# print filePath
-			# print cv2.imread(filePath).shape
-			# pdb.set_trace()
+	for i in range(2000):
+		imagePath = folderPath + '/{0:06d}.png'.format(i)
+		images.append(cv2.imread(imagePath))
 
 	return np.asarray(images, dtype=object)
 

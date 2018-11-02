@@ -30,19 +30,21 @@ totalDataTest = Xtest.shape[0]
 carMasks, peopleMasks = getMasks()
 
 train_data = tf.data.Dataset.from_tensor_slices((Xtrain, Y1train, Y2train, indicesTrain))
+# train_data.shuffle(totalDataTrain)
 train_data = train_data.batch(batchSize)
 test_data = tf.data.Dataset.from_tensor_slices((Xtest, Y1test, Y2test, indicesTest))
+# test_data.shuffle(totalDataTest)
 test_data = test_data.batch(batchSize)
 
 iterator = tf.data.Iterator.from_structure(train_data.output_types, train_data.output_shapes)
 train_init = iterator.make_initializer(train_data) 
 test_init = iterator.make_initializer(test_data) 
 
-x, peopleBbox, carBbox, indicesMask = iterator.get_next()
+originalImage, carBbox, peopleBbox, indicesMask = iterator.get_next()
 
 
 with tf.variable_scope("baseLayers"):
-	conv1 = tf.layers.conv2d(	inputs=x,
+	conv1 = tf.layers.conv2d(	inputs=originalImage,
 								filters=8,
 								kernel_size=[3, 3],
 								padding='same',
@@ -196,8 +198,8 @@ carBboxMod = tf.stack([	carBbox[:, 0] + carBbox[:, 2]/2.0,
 						carBbox[:, 2],
 						carBbox[:, 3]], axis=1)
 
-anchorBoxWidth = 30
-anchorBoxHeight = 30
+anchorBoxWidth = 48
+anchorBoxHeight = 48
 
 Xmesh, Ymesh = tf.meshgrid(tf.range(tf.shape(conv7)[2]), tf.range(tf.shape(conv7)[1]))
 
@@ -247,8 +249,8 @@ peopleIoU = getIoU(peopleBboxModBig, myBboxModBig) # None X 8 X 8 X 1
 carIoU = getIoU(carBboxModBig, myBboxModBig)
 
 maxIoU = tf.math.maximum(peopleIoU, carIoU)
-mask = tf.where(tf.logical_and(tf.less(maxIoU, 0.5), tf.greater(maxIoU, 0.1)), x=tf.zeros_like(maxIoU), y=tf.ones_like(maxIoU))
-gtLabels_approx = tf.where(tf.greater_equal(maxIoU, 0.5), x=tf.ones_like(maxIoU), y=tf.zeros_like(maxIoU))
+mask = tf.where(tf.logical_and(tf.less(maxIoU, 0.4), tf.greater(maxIoU, 0.1)), x=tf.zeros_like(maxIoU), y=tf.ones_like(maxIoU))
+gtLabels_approx = tf.where(tf.greater_equal(maxIoU, 0.4), x=tf.ones_like(maxIoU), y=tf.zeros_like(maxIoU))
 
 learning_rate_cls = 0.001
 accuracyThreshold_cls = 0.5
@@ -257,8 +259,13 @@ loss_cls = tf.nn.sigmoid_cross_entropy_with_logits(labels=gtLabels_approx, logit
 optimizer_cls = tf.train.AdamOptimizer(learning_rate_cls).minimize(loss_cls)
 
 averageLoss_cls = tf.reduce_sum(loss_cls) / tf.math.maximum(1.0, tf.reduce_sum(mask))
-correct_preds_cls = tf.cast(tf.equal(gtLabels_approx, tf.cast(tf.nn.sigmoid(conv7) > accuracyThreshold_cls, tf.float32)), tf.float32) * mask
+predictions_cls = tf.nn.sigmoid(conv7) > accuracyThreshold_cls
+correct_preds_cls = tf.cast(tf.equal(gtLabels_approx, tf.cast(predictions_cls, tf.float32)), tf.float32) * mask
 accuracy_cls = tf.reduce_sum(tf.cast(correct_preds_cls, tf.float32)) / tf.math.maximum(1.0, tf.reduce_sum(mask))
+
+recall_cls = tf.cast(tf.equal(gtLabels_approx, tf.cast(tf.nn.sigmoid(conv7) > accuracyThreshold_cls, tf.float32)), tf.float32) * gtLabels_approx
+avg_recall_cls = tf.cond(tf.equal(tf.reduce_sum(gtLabels_approx), 0.0), lambda: tf.constant(1.0), lambda: 
+	tf.reduce_sum(tf.cast(recall_cls, tf.float32)) / tf.math.maximum(1.0, tf.reduce_sum(gtLabels_approx)))
 
 ############## REG ##############
 
@@ -397,7 +404,7 @@ with tf.variable_scope("FRCNN_cls"):
 # People = 0
 # Car    = 1
 
-gtValuesClsFrcnn = tf.where(tf.squeeze(peopleIoU > carIoU), tf.zeros_like(peopleIoU), tf.ones_like(carIoU))
+gtValuesClsFrcnn = tf.where((peopleIoU > carIoU), tf.zeros_like(peopleIoU), tf.ones_like(carIoU))
 gtValuesClsFrcnnReshape = tf.cast(tf.reshape(gtValuesClsFrcnn, [batch_size, -1, 1]), tf.int64)
 
 bestBboxArgIndices = tf.concat([batchIndices, bestBboxArg[:, 0:1]], axis=1)
@@ -408,6 +415,7 @@ gtValFrcnn = tf.concat((firstGt, secondGt), axis=0) # None x 1
 
 gt_cls_frcnn = tf.one_hot([0] * batchSize + [1] * batchSize, depth=2) # None x 2
 loss_frcnn_cls = tf.nn.softmax_cross_entropy_with_logits_v2(labels=gt_cls_frcnn, logits=fc1)
+avg_loss_frcnn_cls = tf.reduce_mean(loss_frcnn_cls)
 
 preds_frcnn_cls = tf.nn.softmax(fc1)
 correct_preds_frcnn_cls = tf.equal(tf.argmax(preds_frcnn_cls, axis=1), gtValFrcnn)
@@ -417,7 +425,7 @@ learning_rate_frcnn_cls = 0.001
 optimizer_frcnn_cls = tf.train.AdamOptimizer(learning_rate_frcnn_cls).minimize(loss_frcnn_cls)
 
 learning_rate_frcnnCls_rpn = 0.001
-loss_frcnnCls_rpn = 2 * loss_frcnn_cls + rpnTotalLoss
+loss_frcnnCls_rpn = 2 * avg_loss_frcnn_cls + avgRpnTotalLoss
 optimizer_frcnnCls_rpn = tf.train.AdamOptimizer(learning_rate_frcnnCls_rpn).minimize(loss_frcnnCls_rpn)
 
 ############## MASK RCNN ##############
@@ -458,16 +466,30 @@ def run_rpn_cls(sess, num_epochs = 3):
 		num_batches = 0
 		total_loss = 0.0
 		total_acc = 0.0
+		total_recall = 0.0
 		try:
 			while True:
-				l, _, acc = sess.run([averageLoss_cls, optimizer_cls, accuracy_cls])
+				mi, l, _, acc, recall, p, m, g = sess.run([maxIoU, averageLoss_cls, optimizer_cls, accuracy_cls, avg_recall_cls, predictions_cls, mask, gtLabels_approx])
 				num_batches = num_batches + 1
 				total_loss = total_loss + l
 				total_acc = total_acc + acc
+				total_recall = total_recall + recall
+				# pdb.set_trace()
+				# print 'One batch:'
+				# print 'Predictions: '
+				# print p.reshape(2, 8, 8)
+				# print 'Ground truth Mask: '
+				# print m.reshape(2, 8, 8)
+				# print 'Ground truth 1:'
+				# print g.reshape(2, 8, 8)
+				# print 'maxiou'
+				# print mi.reshape(2, 8, 8)
+				# exit()
 		except tf.errors.OutOfRangeError:
 			pass
 		print('(Training) Average loss at epoch {0}: {1}'.format(epoch, total_loss/num_batches))
 		print('(Training) Accuracy at epoch {0}: {1} '.format(epoch, total_acc/num_batches))
+		print('(Training) Recall at epoch {0}: {1} '.format(epoch, total_recall/num_batches))
 		print('(Training) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
 
 		# # Testing
@@ -530,11 +552,13 @@ def run_frcnn_cls(sess, num_epochs = 3, trainBase=False):
 		sess.run(train_init)
 		num_batches = 0
 		total_loss = 0.0
+		total_acc = 0.0
 		try:
 			while True:
-				l, _ = sess.run([loss_frcnn_cls, optimizer_frcnn_cls])
+				l, _, acc = sess.run([avg_loss_frcnn_cls, optimizer_frcnn_cls, accuracy_frcnn_cls])
 				num_batches = num_batches + 1
 				total_loss = total_loss + l
+				total_acc = total_acc + acc
 		except tf.errors.OutOfRangeError:
 			pass
 		except tf.errors.InvalidArgumentError as e:
@@ -543,6 +567,7 @@ def run_frcnn_cls(sess, num_epochs = 3, trainBase=False):
 		except:
 			print('Error')
 		print('(Training) Average loss at epoch {0}: {1}'.format(epoch, total_loss/num_batches))
+		print('(Training) Accuracy at epoch {0}: {1} '.format(epoch, total_acc/num_batches))
 		print('(Training) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
 
 def run_frcnn_rpn(sess, num_epochs=3):
@@ -578,15 +603,15 @@ def run_frcnn_rpn(sess, num_epochs=3):
 		print('(Training) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
 
 def alternateTraining(sess):
-	run_rpn_cls(sess, num_epochs=5)
-	run_rpn_reg_cls(sess, num_epochs=10)
-	run_frcnn_cls(sess, num_epochs=10)
-	run_frcnn_rpn(sess, num_epochs=15)
+	# run_rpn_cls(sess, num_epochs=5)
+	run_rpn_reg_cls(sess, num_epochs=20)
+	# run_frcnn_cls(sess, num_epochs=10)
+	run_frcnn_rpn(sess, num_epochs=45)
 
 with tf.Session() as sess:
 	sess.run(tf.global_variables_initializer())
-	# run_rpn_cls(sess)
+	run_rpn_cls(sess, 20)
 	# run_rpn_reg_cls(sess)
 
-	alternateTraining(sess)
+	# alternateTraining(sess)
 	
