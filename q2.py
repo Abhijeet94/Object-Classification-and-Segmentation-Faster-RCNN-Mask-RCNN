@@ -6,7 +6,7 @@ import pdb
 import time
 from PIL import Image
 import cv2
-import os
+import os, sys
 
 from helpers import *
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
@@ -292,7 +292,7 @@ txStarReg1 = tf.stack((	(gtValuesReg[:, :, :, 0] - myBboxModBig[:, :, :, 0]) / m
 						tf.log(gtValuesReg[:, :, :, 3] / myBboxModBig[:, :, :, 3])), axis=3)
 txStarReg = tf.check_numerics(txStarReg1, 'txStarReg')
 
-learning_rateReg = 0.001
+learning_rateReg = 0.01
 lossReg = tf.losses.absolute_difference(labels=txStarReg, predictions=txReg)                                      
 smoothLossReg = tf.where(lossReg < 1, 0.5 * tf.square(lossReg), lossReg - 0.5) * gtLabels_approx
 averageSmoothLossReg = tf.reduce_sum(smoothLossReg) / (tf.math.maximum(1.0, tf.reduce_sum(gtLabels_approx)) * 4.0)
@@ -487,6 +487,8 @@ def run_rpn_cls(sess, num_epochs = 3):
 				# exit()
 		except tf.errors.OutOfRangeError:
 			pass
+		except KeyboardInterrupt:
+			sys.exit()
 		print('(Training) Average loss at epoch {0}: {1}'.format(epoch, total_loss/num_batches))
 		print('(Training) Accuracy at epoch {0}: {1} '.format(epoch, total_acc/num_batches))
 		print('(Training) Recall at epoch {0}: {1} '.format(epoch, total_recall/num_batches))
@@ -536,6 +538,8 @@ def run_rpn_reg_cls(sess, num_epochs = 3):
 		except tf.errors.InvalidArgumentError as e:
 			print('Invalid argument error')
 			pdb.set_trace()
+		except KeyboardInterrupt:
+			sys.exit()
 		except:
 			print('Error')
 		print('(Training) Average loss at epoch {0}: {1}'.format(epoch, total_loss/num_batches))
@@ -567,6 +571,8 @@ def run_frcnn_cls(sess, num_epochs = 3, trainBase=False):
 		except tf.errors.InvalidArgumentError as e:
 			print('Invalid argument error')
 			pdb.set_trace()
+		except KeyboardInterrupt:
+			sys.exit()
 		except:
 			print('Error')
 		print('(Training) Average loss at epoch {0}: {1}'.format(epoch, total_loss/num_batches))
@@ -599,6 +605,8 @@ def run_frcnn_rpn(sess, num_epochs=3):
 		except tf.errors.InvalidArgumentError as e:
 			print('Invalid argument error')
 			pdb.set_trace()
+		except KeyboardInterrupt:
+			sys.exit()
 		except:
 			print('Error')
 		print('(Training) Average loss at epoch {0}: {1}'.format(epoch, total_loss/num_batches))
@@ -614,7 +622,7 @@ def alternateTraining(sess):
 with tf.Session() as sess:
 	sess.run(tf.global_variables_initializer())
 	# run_rpn_cls(sess, 20)
-	run_rpn_reg_cls(sess, 20)
+	run_rpn_reg_cls(sess, 30)
 
 	# alternateTraining(sess)
 	
