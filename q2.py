@@ -43,10 +43,9 @@ train_init = iterator.make_initializer(train_data)
 test_init = iterator.make_initializer(test_data) 
 
 originalImage, carBbox, peopleBbox, indicesMask = iterator.get_next()
-originalImageX = tf.cond(trainingPhase, lambda: tf.image.random_flip_left_right(originalImage), lambda: tf.identity(originalImage))
 
 with tf.variable_scope("baseLayers"):
-	conv1 = tf.layers.conv2d(	inputs=originalImageX,
+	conv1 = tf.layers.conv2d(	inputs=originalImage,
 								filters=8,
 								kernel_size=[3, 3],
 								padding='same',
