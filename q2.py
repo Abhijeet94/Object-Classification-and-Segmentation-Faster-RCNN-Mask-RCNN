@@ -43,10 +43,10 @@ train_init = iterator.make_initializer(train_data)
 test_init = iterator.make_initializer(test_data) 
 
 originalImage, carBbox, peopleBbox, indicesMask = iterator.get_next()
-
+originalImageX = tf.cond(trainingPhase, lambda: tf.image.random_flip_left_right(originalImage), lambda: tf.identity(originalImage))
 
 with tf.variable_scope("baseLayers"):
-	conv1 = tf.layers.conv2d(	inputs=originalImage,
+	conv1 = tf.layers.conv2d(	inputs=originalImageX,
 								filters=8,
 								kernel_size=[3, 3],
 								padding='same',
@@ -292,15 +292,17 @@ txStarReg1 = tf.stack((	(gtValuesReg[:, :, :, 0] - myBboxModBig[:, :, :, 0]) / m
 						tf.log(gtValuesReg[:, :, :, 3] / myBboxModBig[:, :, :, 3])), axis=3)
 txStarReg = tf.check_numerics(txStarReg1, 'txStarReg')
 
-learning_rateReg = 0.01
-lossReg = tf.losses.absolute_difference(labels=txStarReg, predictions=txReg)                                      
+learning_rateReg = 0.1
+learning_rateRegCls = 0.01          
+lossReg = tf.abs(txStarReg - txReg)                        
 smoothLossReg = tf.where(lossReg < 1, 0.5 * tf.square(lossReg), lossReg - 0.5) * gtLabels_approx
 averageSmoothLossReg = tf.reduce_sum(smoothLossReg) / (tf.math.maximum(1.0, tf.reduce_sum(gtLabels_approx)) * 4.0)
+optimizerRpnReg = tf.train.AdamOptimizer(learning_rateReg).minimize(averageSmoothLossReg)
 
 regWeight = tf.reduce_sum(mask) / tf.math.maximum(1.0, (tf.reduce_sum(gtLabels_approx) + tf.reduce_sum(mask)))
 clsWeight = tf.reduce_sum(gtLabels_approx) / tf.math.maximum(1.0, (tf.reduce_sum(gtLabels_approx) + tf.reduce_sum(mask)))
 rpnTotalLoss = regWeight * averageSmoothLossReg + clsWeight * loss_cls_reduced 
-optimizerRpn = tf.train.AdamOptimizer(learning_rateReg).minimize(rpnTotalLoss)
+optimizerRpn = tf.train.AdamOptimizer(learning_rateRegCls).minimize(rpnTotalLoss)
 
 ############## PEOPLE/CAR CLASSIFICATION ##############
 
@@ -441,6 +443,14 @@ optimizer_frcnnCls_rpn = tf.train.AdamOptimizer(learning_rate_frcnnCls_rpn).mini
 
 ############## RUN SESSION ##############
 
+def plotTrainingLoss(loss_array):
+	iteration_array = range(1, len(loss_array) + 1)
+	plt.plot(iteration_array, loss_array)
+	plt.xlabel('# Iteration')
+	plt.ylabel('Training Loss')
+	plt.title('Training loss over training iterations')
+	plt.show()
+
 def run_test(sess):
 	image1 = cv2.imread('P&C dataset/img/000000.jpg')
 	image2 = cv2.imread('P&C dataset/img/000012.jpg')
@@ -457,6 +467,7 @@ def run_rpn_cls(sess, num_epochs = 3):
 	trainingBase = True
 	trainingRPN = True
 	trainingFrcnn = False
+	trainingLoss = []
 	for epoch in range(num_epochs):
 
 		# Training
@@ -469,22 +480,11 @@ def run_rpn_cls(sess, num_epochs = 3):
 		total_recall = 0.0
 		try:
 			while True:
-				mi, l, _, acc, recall, p, m, g = sess.run([maxIoU, averageLoss_cls, optimizer_cls, accuracy_cls, avg_recall_cls, predictions_cls, mask, gtLabels_approx])
+				l, _, acc, recall = sess.run([averageLoss_cls, optimizer_cls, accuracy_cls, avg_recall_cls])
 				num_batches = num_batches + 1
 				total_loss = total_loss + l
 				total_acc = total_acc + acc
 				total_recall = total_recall + recall
-				# pdb.set_trace()
-				# print 'One batch:'
-				# print 'Predictions: '
-				# print p.reshape(2, 8, 8)
-				# print 'Ground truth Mask: '
-				# print m.reshape(2, 8, 8)
-				# print 'Ground truth 1:'
-				# print g.reshape(2, 8, 8)
-				# print 'maxiou'
-				# print mi.reshape(2, 8, 8)
-				# exit()
 		except tf.errors.OutOfRangeError:
 			pass
 		except KeyboardInterrupt:
@@ -493,6 +493,8 @@ def run_rpn_cls(sess, num_epochs = 3):
 		print('(Training) Accuracy at epoch {0}: {1} '.format(epoch, total_acc/num_batches))
 		print('(Training) Recall at epoch {0}: {1} '.format(epoch, total_recall/num_batches))
 		print('(Training) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
+
+		trainingLoss.append(total_loss/num_batches)
 
 		# # Testing
 		# start_time = time.time()
@@ -511,12 +513,46 @@ def run_rpn_cls(sess, num_epochs = 3):
 		# 	pass
 		# print('\t(Testing) Accuracy at epoch {0}: {1} '.format(epoch, total_acc/num_batches))
 		# print('\t(Testing) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
+	plotTrainingLoss(trainingLoss)
+
+def run_rpn_reg(sess, num_epochs = 3):
+	print 'RPN reg'
+	trainingBase = True
+	trainingRPN = True
+	trainingFrcnn = False
+	trainingLoss = []
+	for epoch in range(num_epochs):
+
+		# Training
+		start_time = time.time()
+		trainingPhase = True
+		sess.run(train_init)
+		num_batches = 0
+		total_loss = 0.0
+		total_acc = 0.0
+		total_recall = 0.0
+		try:
+			while True:
+				slr, l, _, conv8P, conv7P, g, carBMB, peopleBMB = sess.run([smoothLossReg, averageSmoothLossReg, optimizerRpnReg, conv8, conv7, gtLabels_approx, carBboxModBig, peopleBboxModBig])
+				num_batches = num_batches + 1
+				total_loss = total_loss + l
+				if epoch >= 18:
+					pdb.set_trace()
+		except tf.errors.OutOfRangeError:
+			pass
+		except KeyboardInterrupt:
+			sys.exit()
+		print('(Training) Average loss at epoch {0}: {1}'.format(epoch, total_loss/num_batches))
+		print('(Training) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
+		trainingLoss.append(total_loss/num_batches)
+	plotTrainingLoss(trainingLoss)
 
 def run_rpn_reg_cls(sess, num_epochs = 3):
 	print 'RPN reg cls'
 	trainingBase = True
 	trainingRPN = True
 	trainingFrcnn = False
+	trainingLoss = []
 	for epoch in range(num_epochs):
 
 		# Training
@@ -527,12 +563,12 @@ def run_rpn_reg_cls(sess, num_epochs = 3):
 		total_loss = 0.0
 		try:
 			while True:
-				l, _, conv8P, conv7P, g = sess.run([rpnTotalLoss, optimizerRpn, conv8, conv7, gtLabels_approx])
+				l, _, conv8P, conv7P, g, carBMB, peopleBMB = sess.run([rpnTotalLoss, optimizerRpn, conv8, conv7, gtLabels_approx, carBboxModBig, peopleBboxModBig])
 				num_batches = num_batches + 1
 				total_loss = total_loss + l
-				if epoch == 10:
-					print conv8P.reshape(2, 8, 8, 4)
-					pdb.set_trace()
+				# if epoch >= 18:
+				# 	print conv8P.reshape(2, 8, 8, 4)
+				# 	pdb.set_trace()
 		except tf.errors.OutOfRangeError:
 			pass
 		except tf.errors.InvalidArgumentError as e:
@@ -544,6 +580,8 @@ def run_rpn_reg_cls(sess, num_epochs = 3):
 			print('Error')
 		print('(Training) Average loss at epoch {0}: {1}'.format(epoch, total_loss/num_batches))
 		print('(Training) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
+		trainingLoss.append(total_loss/num_batches)
+	plotTrainingLoss(trainingLoss)
 
 def run_frcnn_cls(sess, num_epochs = 3, trainBase=False):
 	print 'FRCNN cls'
@@ -622,7 +660,8 @@ def alternateTraining(sess):
 with tf.Session() as sess:
 	sess.run(tf.global_variables_initializer())
 	# run_rpn_cls(sess, 20)
-	run_rpn_reg_cls(sess, 30)
+	# run_rpn_reg_cls(sess, 20)
+	run_rpn_reg(sess, 20)
 
 	# alternateTraining(sess)
 	
