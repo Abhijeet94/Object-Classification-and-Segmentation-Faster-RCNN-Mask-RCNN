@@ -181,7 +181,7 @@ with tf.variable_scope("RPNlayers"):
 								kernel_size=[1, 1],
 								padding='same',
 								activation=None,
-								name='conv8',
+								name='conv81',
 								trainable=trainingRPN,
 								kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.01), 
 								bias_initializer=tf.constant_initializer(bias_init, verify_shape=True))
@@ -291,8 +291,8 @@ txStarReg1 = tf.stack((	(gtValuesReg[:, :, :, 0] - myBboxModBig[:, :, :, 0]) / m
 						tf.log(gtValuesReg[:, :, :, 3] / myBboxModBig[:, :, :, 3])), axis=3)
 txStarReg = tf.check_numerics(txStarReg1, 'txStarReg')
 
-learning_rateReg = 0.1
-learning_rateRegCls = 0.01          
+learning_rateReg = 0.001
+learning_rateRegCls = 0.001          
 lossReg = tf.abs(txStarReg - txReg)                        
 smoothLossReg = tf.where(lossReg < 1, 0.5 * tf.square(lossReg), lossReg - 0.5) * gtLabels_approx
 averageSmoothLossReg = tf.reduce_sum(smoothLossReg) / (tf.math.maximum(1.0, tf.reduce_sum(gtLabels_approx)) * 4.0)
@@ -423,10 +423,11 @@ correct_preds_frcnn_cls = tf.equal(tf.argmax(preds_frcnn_cls, axis=1), gtValFrcn
 accuracy_frcnn_cls = tf.reduce_mean(tf.cast(correct_preds_frcnn_cls, tf.float32))
 
 learning_rate_frcnn_cls = 0.001
-optimizer_frcnn_cls = tf.train.AdamOptimizer(learning_rate_frcnn_cls).minimize(loss_frcnn_cls)
+train_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, "FRCNN_cls") 
+optimizer_frcnn_cls = tf.train.AdamOptimizer(learning_rate_frcnn_cls).minimize(avg_loss_frcnn_cls, var_list=train_vars)
 
 learning_rate_frcnnCls_rpn = 0.001
-loss_frcnnCls_rpn = 2 * avg_loss_frcnn_cls + rpnTotalLoss
+loss_frcnnCls_rpn = avg_loss_frcnn_cls + rpnTotalLoss
 optimizer_frcnnCls_rpn = tf.train.AdamOptimizer(learning_rate_frcnnCls_rpn).minimize(loss_frcnnCls_rpn)
 
 ############## MASK RCNN ##############
@@ -443,6 +444,7 @@ optimizer_frcnnCls_rpn = tf.train.AdamOptimizer(learning_rate_frcnnCls_rpn).mini
 ############## RUN SESSION ##############
 
 def plotTrainingLoss(loss_array):
+	return
 	iteration_array = range(1, len(loss_array) + 1)
 	plt.plot(iteration_array, loss_array)
 	plt.xlabel('# Iteration')
@@ -535,8 +537,8 @@ def run_rpn_reg(sess, num_epochs = 3):
 				slr, l, _, conv8P, conv7P, g, carBMB, peopleBMB = sess.run([smoothLossReg, averageSmoothLossReg, optimizerRpnReg, conv8, conv7, gtLabels_approx, carBboxModBig, peopleBboxModBig])
 				num_batches = num_batches + 1
 				total_loss = total_loss + l
-				if epoch >= 18:
-					pdb.set_trace()
+				# if epoch >= 18:
+				# 	pdb.set_trace()
 		except tf.errors.OutOfRangeError:
 			pass
 		except KeyboardInterrupt:
@@ -566,7 +568,6 @@ def run_rpn_reg_cls(sess, num_epochs = 3):
 				num_batches = num_batches + 1
 				total_loss = total_loss + l
 				# if epoch >= 18:
-				# 	print conv8P.reshape(2, 8, 8, 4)
 				# 	pdb.set_trace()
 		except tf.errors.OutOfRangeError:
 			pass
@@ -599,10 +600,16 @@ def run_frcnn_cls(sess, num_epochs = 3, trainBase=False):
 		total_acc = 0.0
 		try:
 			while True:
-				l, _, acc = sess.run([avg_loss_frcnn_cls, optimizer_frcnn_cls, accuracy_frcnn_cls])
+				gt_cls_frcnnP, fc1P, pi, ci, bba, bba2, bb, bb2, thetaP, l, _, acc, conv8P, conv7P, g, carBMB, peopleBMB = sess.run([gt_cls_frcnn, fc1, 
+					peopleIoU, carIoU, 
+					bestBboxArg, best2BboxArg, bestBbox, best2Bbox,
+					theta, avg_loss_frcnn_cls, optimizer_frcnn_cls, accuracy_frcnn_cls, conv8, conv7, gtLabels_approx, 
+					carBboxModBig, peopleBboxModBig])
 				num_batches = num_batches + 1
 				total_loss = total_loss + l
 				total_acc = total_acc + acc
+				if (epoch == 18 or epoch == 0) and num_batches == 1:
+					pdb.set_trace()
 		except tf.errors.OutOfRangeError:
 			pass
 		except tf.errors.InvalidArgumentError as e:
@@ -633,7 +640,11 @@ def run_frcnn_rpn(sess, num_epochs=3):
 		total_acc = 0.0
 		try:
 			while True:
-				l, _, acc = sess.run([loss_frcnnCls_rpn, optimizer_frcnnCls_rpn, accuracy_frcnn_cls])
+				gt_cls_frcnnP, fc1P, pi, ci, bba, bba2, bb, bb2, thetaP, l, _, acc, conv8P, conv7P, g, carBMB, peopleBMB = sess.run([gt_cls_frcnn, fc1, 
+					peopleIoU, carIoU, 
+					bestBboxArg, best2BboxArg, bestBbox, best2Bbox,
+					theta, loss_frcnnCls_rpn, optimizer_frcnnCls_rpn, accuracy_frcnn_cls, conv8, conv7, gtLabels_approx, 
+					carBboxModBig, peopleBboxModBig])
 				num_batches = num_batches + 1
 				total_loss = total_loss + l
 				total_acc = total_acc + acc
@@ -651,16 +662,16 @@ def run_frcnn_rpn(sess, num_epochs=3):
 		print('(Training) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
 
 def alternateTraining(sess):
-	run_rpn_cls(sess, num_epochs=10)
+	# run_rpn_cls(sess, num_epochs=5)
 	run_rpn_reg_cls(sess, num_epochs=20)
-	run_frcnn_cls(sess, num_epochs=10)
-	run_frcnn_rpn(sess, num_epochs=45)
+	run_frcnn_cls(sess, num_epochs=20)
+	# run_frcnn_rpn(sess, num_epochs=45)
 
 with tf.Session() as sess:
 	sess.run(tf.global_variables_initializer())
 	# run_rpn_cls(sess, 20)
 	# run_rpn_reg_cls(sess, 20)
-	run_rpn_reg(sess, 20)
+	# run_rpn_reg(sess, 20)
 
-	# alternateTraining(sess)
+	alternateTraining(sess)
 	
