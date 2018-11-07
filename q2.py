@@ -357,7 +357,7 @@ transformerOutput.set_shape([None, 4, 4, 128])
 with tf.variable_scope("FRCNN_cls"):
 	conv9 = tf.layers.conv2d(	inputs=transformerOutput,
 								filters=128,
-								kernel_size=[1, 1],
+								kernel_size=[3, 3],
 								padding='same',
 								activation=None,
 								name='conv9',
@@ -373,7 +373,7 @@ with tf.variable_scope("FRCNN_cls"):
 
 	conv10 = tf.layers.conv2d(	inputs=conv9_relu,
 								filters=128,
-								kernel_size=[1, 1],
+								kernel_size=[3, 3],
 								padding='same',
 								activation=None,
 								name='conv10',
@@ -413,8 +413,9 @@ firstGt = tf.gather_nd(gtValuesClsFrcnnReshape, bestBboxArgIndices)
 best2BboxArgIndices = tf.concat([batchIndices, best2BboxArg[:, 0:1]], axis=1)
 secondGt = tf.gather_nd(gtValuesClsFrcnnReshape, best2BboxArgIndices)
 gtValFrcnn = tf.concat((firstGt, secondGt), axis=0) # None x 1
+gtValFrcnnFlat = tf.reshape(gtValFrcnn, [-1])
 
-gt_cls_frcnn = tf.one_hot([0] * batchSize + [1] * batchSize, depth=2) # None x 2
+gt_cls_frcnn = tf.one_hot(gtValFrcnnFlat, depth=2) # None x 2
 loss_frcnn_cls = tf.nn.softmax_cross_entropy_with_logits_v2(labels=gt_cls_frcnn, logits=fc1)
 avg_loss_frcnn_cls = tf.reduce_mean(loss_frcnn_cls)
 
@@ -462,6 +463,25 @@ def run_test(sess):
 	sess.run([loss_cls_reduced, conv7, peopleBboxMod, myBboxModBig, peopleBboxModBig, carBboxModBig, mask, gtLabels_approx, carIoU, peopleIoU], 
 		feed_dict={x: images, peopleBbox: peoples, carBbox: cars})
 	pdb.set_trace()
+
+def run_2_1(sess):
+	image = cv2.imread('P&C dataset/img/000001.jpg')
+	image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB).reshape(1, 128, 128, 3)
+	theta = np.zeros((1, 6))
+	# 21,24,58,65 --> 50, 56.5, 58, 65
+	# 3,54,20,51 --> 13,79.5,20,51
+	theta[0, 0] = 20.0/128
+	theta[0, 2] = (13 - 64)/64.0
+	theta[0, 4] = 51.0/128
+	theta[0, 5] = (79.5 - 64)/64.0
+
+	image = tf.convert_to_tensor(image, dtype=tf.float32)
+	theta = tf.convert_to_tensor(theta, dtype=tf.float32)
+
+	out = transformer(image, theta, (22, 22))
+	outP = sess.run(out)
+	plt.imshow(outP[0].astype(np.uint8))
+	plt.show()
 
 def run_rpn_cls(sess, num_epochs = 3):
 	print 'RPN cls'
@@ -537,7 +557,7 @@ def run_rpn_reg(sess, num_epochs = 3):
 				slr, l, _, conv8P, conv7P, g, carBMB, peopleBMB = sess.run([smoothLossReg, averageSmoothLossReg, optimizerRpnReg, conv8, conv7, gtLabels_approx, carBboxModBig, peopleBboxModBig])
 				num_batches = num_batches + 1
 				total_loss = total_loss + l
-				# if epoch >= 18:
+				# if epoch >= 18 and num_batches == 1:
 				# 	pdb.set_trace()
 		except tf.errors.OutOfRangeError:
 			pass
@@ -567,7 +587,7 @@ def run_rpn_reg_cls(sess, num_epochs = 3):
 				l, _, conv8P, conv7P, g, carBMB, peopleBMB = sess.run([rpnTotalLoss, optimizerRpn, conv8, conv7, gtLabels_approx, carBboxModBig, peopleBboxModBig])
 				num_batches = num_batches + 1
 				total_loss = total_loss + l
-				# if epoch >= 18:
+				# if epoch >= 18 and num_batches == 1:
 				# 	pdb.set_trace()
 		except tf.errors.OutOfRangeError:
 			pass
@@ -600,14 +620,19 @@ def run_frcnn_cls(sess, num_epochs = 3, trainBase=False):
 		total_acc = 0.0
 		try:
 			while True:
-				gt_cls_frcnnP, fc1P, pi, ci, bba, bba2, bb, bb2, thetaP, l, _, acc, conv8P, conv7P, g, carBMB, peopleBMB = sess.run([gt_cls_frcnn, fc1, 
-					peopleIoU, carIoU, 
+				gt_cls_frcnnP, fc1P, pi, ci, gtValFrcnnP, gt_cls_frcnnP, bba, bba2, bb, bb2, thetaP, l, _, acc, conv8P, conv7P, g, carBMB, peopleBMB = sess.run([gt_cls_frcnn, fc1, 
+					peopleIoU, carIoU, gtValFrcnn, gt_cls_frcnn,
 					bestBboxArg, best2BboxArg, bestBbox, best2Bbox,
 					theta, avg_loss_frcnn_cls, optimizer_frcnn_cls, accuracy_frcnn_cls, conv8, conv7, gtLabels_approx, 
 					carBboxModBig, peopleBboxModBig])
 				num_batches = num_batches + 1
 				total_loss = total_loss + l
 				total_acc = total_acc + acc
+				# print '+++++++++'
+				# print gtValFrcnnP
+				# print '---------'
+				# print gt_cls_frcnnP
+				# print '+++++++++'
 				if (epoch == 18 or epoch == 0) and num_batches == 1:
 					pdb.set_trace()
 		except tf.errors.OutOfRangeError:
@@ -672,6 +697,7 @@ with tf.Session() as sess:
 	# run_rpn_cls(sess, 20)
 	# run_rpn_reg_cls(sess, 20)
 	# run_rpn_reg(sess, 20)
+	# run_2_1(sess)
 
 	alternateTraining(sess)
 	
