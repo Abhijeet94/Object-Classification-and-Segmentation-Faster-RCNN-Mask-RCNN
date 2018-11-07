@@ -24,17 +24,16 @@ trainingPhase = tf.Variable(True)
 trainingRPN = tf.Variable(True)
 trainingBase = tf.Variable(True)
 trainingFrcnn = tf.Variable(True)
+trainingMaskrcnn = tf.Variable(True)
 
-Xtrain, Y1train, Y2train, indicesTrain, Xtest, Y1test, Y2test, indicesTest = getXandY()
+Xtrain, Y1train, Y2train, carMaskTrain, peopleMaskTrain, Xtest, Y1test, Y2test, carMaskTest, peopleMaskTest = getXandY()
 totalDataTrain = Xtrain.shape[0]
 totalDataTest = Xtest.shape[0]
 
-carMasks, peopleMasks = getMasks()
-
-train_data = tf.data.Dataset.from_tensor_slices((Xtrain, Y1train, Y2train, indicesTrain))
+train_data = tf.data.Dataset.from_tensor_slices((Xtrain, Y1train, Y2train, carMaskTrain, peopleMaskTrain))
 # train_data.shuffle(totalDataTrain)
 train_data = train_data.batch(batchSize)
-test_data = tf.data.Dataset.from_tensor_slices((Xtest, Y1test, Y2test, indicesTest))
+test_data = tf.data.Dataset.from_tensor_slices((Xtest, Y1test, Y2test, carMaskTest, peopleMaskTest))
 # test_data.shuffle(totalDataTest)
 test_data = test_data.batch(batchSize)
 
@@ -42,7 +41,7 @@ iterator = tf.data.Iterator.from_structure(train_data.output_types, train_data.o
 train_init = iterator.make_initializer(train_data) 
 test_init = iterator.make_initializer(test_data) 
 
-originalImage, carBbox, peopleBbox, indicesMask = iterator.get_next()
+originalImage, carBbox, peopleBbox, carMask, peopleMask = iterator.get_next()
 
 with tf.variable_scope("baseLayers"):
 	conv1 = tf.layers.conv2d(	inputs=originalImage,
@@ -342,8 +341,9 @@ theta = tf.stack((	bestBbox[:, 2] / 128.0,
 from spatial_transformer import *
 
 # conv5stackedTwice = tf.tile(conv5_relu, [2, 1, 1, 1])
-transformerOutput = transformer(conv5_relu, theta, (4,4))
-transformerOutput.set_shape([None, 4, 4, 128]) 
+outS = 24
+transformerOutput = transformer(conv5_relu, theta, (outS,outS))
+transformerOutput.set_shape([None, outS, outS, 128]) 
 
 with tf.variable_scope("FRCNN_cls"):
 	conv9 = tf.layers.conv2d(	inputs=transformerOutput,
@@ -401,7 +401,7 @@ gtValuesClsFrcnnReshape = tf.cast(tf.reshape(gtValuesClsFrcnn, [batch_size, -1, 
 
 bestBboxArgIndices = tf.concat([batchIndices, bestBboxArg[:, 0:1]], axis=1)
 gtValFrcnn = tf.gather_nd(gtValuesClsFrcnnReshape, bestBboxArgIndices)
-gtValFrcnnFlat = tf.reshape(gtValFrcnn, [-1])
+gtValFrcnnFlat = tf.reshape(gtValFrcnn, [-1]) # None x 1
 
 gt_cls_frcnn = tf.one_hot(gtValFrcnnFlat, depth=2) # None x 2
 loss_frcnn_cls = tf.nn.softmax_cross_entropy_with_logits_v2(labels=gt_cls_frcnn, logits=fc1)
@@ -419,9 +419,81 @@ learning_rate_frcnnCls_rpn = 0.001
 loss_frcnnCls_rpn = avg_loss_frcnn_cls + rpnTotalLoss
 optimizer_frcnnCls_rpn = tf.train.AdamOptimizer(learning_rate_frcnnCls_rpn).minimize(loss_frcnnCls_rpn)
 
-############## MASK RCNN ##############
+############################ MASK RCNN ############################
 
+with tf.variable_scope("Mask_RCNN"):
+	conv11 = tf.layers.conv2d(	inputs=transformerOutput,
+								filters=128,
+								kernel_size=[3, 3],
+								padding='same',
+								activation=None,
+								name='conv11',
+								trainable=trainingMaskrcnn,
+								kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.01), 
+								bias_initializer=tf.constant_initializer(0.01))
+	conv11_bn = tf.layers.batch_normalization(	inputs=conv11,
+												name='conv11_bn',
+												trainable=trainingMaskrcnn,
+												training=trainingPhase)
 
+	conv11_relu = tf.nn.relu(conv11_bn, name='conv11_relu')
+
+	conv12 = tf.layers.conv2d(	inputs=conv11_relu,
+								filters=128,
+								kernel_size=[3, 3],
+								padding='same',
+								activation=None,
+								name='conv12',
+								trainable=trainingMaskrcnn,
+								kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.01), 
+								bias_initializer=tf.constant_initializer(0.01))
+	conv12_bn = tf.layers.batch_normalization(	inputs=conv12,
+												name='conv12_bn',
+												trainable=trainingMaskrcnn,
+												training=trainingPhase)
+
+	conv12_relu = tf.nn.relu(conv12_bn, name='conv10_relu')
+
+	conv13 = tf.layers.conv2d(	inputs=conv12_relu,
+								filters=1,
+								kernel_size=[1, 1],
+								padding='same',
+								activation=None,
+								name='conv13',
+								trainable=trainingMaskrcnn,
+								kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.01), 
+								bias_initializer=tf.constant_initializer(0.01))
+	# conv13 is (None x 4 x 4 x 1)
+
+	# conv14 = tf.layers.conv2d_transpose(inputs=conv13,
+	# 									filters=1,
+	# 									kernel_size=[1, 1],
+	# 									strides=(6,6),
+	# 									padding='valid',
+	# 									activation=None,
+	# 									name='conv14',
+	# 									trainable=trainingMaskrcnn,
+	# 									kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.01), 
+	# 									bias_initializer=tf.constant_initializer(0.01))
+	conv14 = conv13
+
+	# conv14 is (None x 24 x 24 x 1)
+
+K = 24
+gt_mask = tf.where(gtValFrcnnFlat == 0, peopleMask, carMask) # (None x M x M x 1)
+gt_mask_resized = tf.image.resize_images(gt_mask, [K, K]) # (None x K x K x 1)
+gt_mask_resized_round = tf.round(gt_mask_resized)
+
+loss_maskrcnn = tf.nn.sigmoid_cross_entropy_with_logits(labels=gt_mask_resized_round, logits=conv14) 
+avg_loss_maskrcnn = tf.reduce_mean(loss_maskrcnn)
+
+learning_rate_maskrcnn = 0.001
+train_vars_mask = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, "Mask_RCNN") 
+optimizer_maskrcnn = tf.train.AdamOptimizer(learning_rate_maskrcnn).minimize(avg_loss_maskrcnn, var_list=train_vars_mask)
+
+predictions_maskrcnn = tf.nn.sigmoid(conv14) > 0.5
+correct_preds_maskrcnn = tf.cast(tf.equal(gt_mask_resized_round, tf.cast(predictions_maskrcnn, tf.float32)), tf.float32)
+accuracy_maskrcnn = tf.reduce_mean(correct_preds_maskrcnn)
 
 # pdb.set_trace()
 
@@ -675,11 +747,69 @@ def run_frcnn_rpn(sess, num_epochs=3):
 		print('(Training) Accuracy at epoch {0}: {1} '.format(epoch, total_acc/num_batches))
 		print('(Training) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
 
+def run_maskrcnn(sess, num_epochs=3):
+	print 'Mask RCNN'
+	trainingBase = True
+	trainingRPN = True
+	trainingFrcnn = True
+	Mask_RCNN = True
+
+	for epoch in range(num_epochs):
+
+		# Training
+		start_time = time.time()
+		trainingPhase = True
+		sess.run(train_init)
+		num_batches = 0
+		total_loss = 0.0
+		total_acc = 0.0
+		try:
+			while True:
+				l, _, acc = sess.run([avg_loss_maskrcnn, optimizer_maskrcnn, accuracy_maskrcnn])
+				num_batches = num_batches + 1
+				total_loss = total_loss + l
+				total_acc = total_acc + acc
+		except tf.errors.OutOfRangeError:
+			pass
+		except tf.errors.InvalidArgumentError as e:
+			print('Invalid argument error')
+			pdb.set_trace()
+		except KeyboardInterrupt:
+			sys.exit()
+		except:
+			print('Error')
+		print('(Training) Average loss at epoch {0}: {1}'.format(epoch, total_loss/num_batches))
+		print('(Training) Accuracy at epoch {0}: {1} '.format(epoch, total_acc/num_batches))
+		print('(Training) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
+
+	# Testing
+	epoch = -1
+	start_time = time.time()
+	trainingPhase = False
+	sess.run(test_init)
+	num_batches = 0
+	total_loss = 0.0
+	total_acc = 0.0
+	try:
+		while True:
+			l, acc = sess.run([avg_loss_maskrcnn, accuracy_maskrcnn])
+			num_batches = num_batches + 1
+			total_loss = total_loss + l
+			total_acc = total_acc + acc
+	except tf.errors.OutOfRangeError:
+		pass
+	print('\t(Testing) Accuracy at epoch {0}: {1} '.format(epoch, total_acc/num_batches))
+	print('\t(Testing) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
+
 def alternateTraining(sess):
 	# run_rpn_cls(sess, num_epochs=5)
 	run_rpn_reg_cls(sess, num_epochs=20)
 	run_frcnn_cls(sess, num_epochs=30)
 	# run_frcnn_rpn(sess, num_epochs=45)
+
+def alternateTrainingMask(sess):
+	run_rpn_reg_cls(sess, num_epochs=20)
+	run_maskrcnn(sess, num_epochs=25)
 
 with tf.Session() as sess:
 	sess.run(tf.global_variables_initializer())
@@ -687,6 +817,8 @@ with tf.Session() as sess:
 	# run_rpn_reg_cls(sess, 20)
 	# run_rpn_reg(sess, 20)
 	# run_2_1(sess)
+	# run_maskrcnn(sess, 20)
 
-	alternateTraining(sess)
+	alternateTrainingMask(sess)
+	# alternateTraining(sess)
 	
