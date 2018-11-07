@@ -311,47 +311,38 @@ reshapedConv7 = tf.reshape(conv7, [batch_size, -1, 1])
 reshapedConv8 = tf.reshape(conv8, [batch_size, -1, 4])
 argSortedConv7 = tf.cast(tf.contrib.framework.argsort(reshapedConv7, axis=1, direction='DESCENDING'), tf.int64)
 bestBboxIndex_test = tf.cast(argSortedConv7[:, 0, :], tf.int64)
-best2BboxIndex_test = tf.cast(argSortedConv7[:, 1, :], tf.int64)
 
 bestBboxIndex_train = tf.argmax(tf.reshape(peopleIoU, [batch_size, -1, 1]), axis=1)
-best2BboxIndex_train = tf.argmax(tf.reshape(carIoU, [batch_size, -1, 1]), axis=1)
 
 batchIndices = tf.cast(tf.expand_dims(tf.range(batch_size), 1), tf.int64)
 bbtestGatherIndices = tf.concat([batchIndices, bestBboxIndex_test[:, 0:1]], axis=1)
 bestBbox_test = tf.gather_nd(reshapedConv8, bbtestGatherIndices)
-bb2testGatherIndices = tf.concat([batchIndices, best2BboxIndex_test[:, 0:1]], axis=1)
-best2Bbox_test = tf.gather_nd(reshapedConv8, bb2testGatherIndices)
 
 bbtrainGatherIndices = tf.concat([batchIndices, bestBboxIndex_train[:, 0:1]], axis=1)
 bestBbox_train = tf.gather_nd(reshapedConv8, bbtrainGatherIndices)
-bb2trainGatherIndices = tf.concat([batchIndices, best2BboxIndex_train[:, 0:1]], axis=1)
-best2Bbox_train = tf.gather_nd(reshapedConv8, bb2trainGatherIndices)
 
-bestBboxArg = tf.cond(trainingPhase, lambda: bestBboxIndex_train, lambda: bestBboxIndex_test)
-best2BboxArg = tf.cond(trainingPhase, lambda: best2BboxIndex_train, lambda: best2BboxIndex_test)
+bestBboxArg = tf.cond(trainingPhase, lambda: bestBboxIndex_test, lambda: bestBboxIndex_test)
+bestBbox = tf.cond(trainingPhase, lambda: bestBbox_test, lambda: bestBbox_test)
 
-bestBbox = tf.cond(trainingPhase, lambda: bestBbox_train, lambda: bestBbox_test)
-best2Bbox = tf.cond(trainingPhase, lambda: best2Bbox_train, lambda: best2Bbox_test)
-
-theta1 = tf.stack((	bestBbox[:, 2] / 128.0,
+theta = tf.stack((	bestBbox[:, 2] / 128.0,
 					tf.zeros([batch_size], tf.float32),
 					(bestBbox[:, 0] - 64)/ 64.0,
 					tf.zeros([batch_size], tf.float32),
 					bestBbox[:, 3] / 128.0,
 					(bestBbox[:, 1] - 64)/ 64.0), axis=1)
 
-theta2 = tf.stack((	best2Bbox[:, 2] / 128.0,
-					tf.zeros([batch_size], tf.float32),
-					(best2Bbox[:, 0] - 64)/ 64.0,
-					tf.zeros([batch_size], tf.float32),
-					best2Bbox[:, 3] / 128.0,
-					(best2Bbox[:, 1] - 64)/ 64.0), axis=1)
-theta = tf.concat((theta1, theta2), axis=0)
+# theta2 = tf.stack((	best2Bbox[:, 2] / 128.0,
+# 					tf.zeros([batch_size], tf.float32),
+# 					(best2Bbox[:, 0] - 64)/ 64.0,
+# 					tf.zeros([batch_size], tf.float32),
+# 					best2Bbox[:, 3] / 128.0,
+# 					(best2Bbox[:, 1] - 64)/ 64.0), axis=1)
+# theta = tf.concat((theta1, theta2), axis=0)
 
 from spatial_transformer import *
 
-conv5stackedTwice = tf.tile(conv5_relu, [2, 1, 1, 1])
-transformerOutput = transformer(conv5stackedTwice, theta, (4,4))
+# conv5stackedTwice = tf.tile(conv5_relu, [2, 1, 1, 1])
+transformerOutput = transformer(conv5_relu, theta, (4,4))
 transformerOutput.set_shape([None, 4, 4, 128]) 
 
 with tf.variable_scope("FRCNN_cls"):
@@ -409,10 +400,7 @@ gtValuesClsFrcnn = tf.where((peopleIoU > carIoU), tf.zeros_like(peopleIoU), tf.o
 gtValuesClsFrcnnReshape = tf.cast(tf.reshape(gtValuesClsFrcnn, [batch_size, -1, 1]), tf.int64)
 
 bestBboxArgIndices = tf.concat([batchIndices, bestBboxArg[:, 0:1]], axis=1)
-firstGt = tf.gather_nd(gtValuesClsFrcnnReshape, bestBboxArgIndices)
-best2BboxArgIndices = tf.concat([batchIndices, best2BboxArg[:, 0:1]], axis=1)
-secondGt = tf.gather_nd(gtValuesClsFrcnnReshape, best2BboxArgIndices)
-gtValFrcnn = tf.concat((firstGt, secondGt), axis=0) # None x 1
+gtValFrcnn = tf.gather_nd(gtValuesClsFrcnnReshape, bestBboxArgIndices)
 gtValFrcnnFlat = tf.reshape(gtValFrcnn, [-1])
 
 gt_cls_frcnn = tf.one_hot(gtValFrcnnFlat, depth=2) # None x 2
@@ -620,11 +608,12 @@ def run_frcnn_cls(sess, num_epochs = 3, trainBase=False):
 		total_acc = 0.0
 		try:
 			while True:
-				gt_cls_frcnnP, fc1P, pi, ci, gtValFrcnnP, gt_cls_frcnnP, bba, bba2, bb, bb2, thetaP, l, _, acc, conv8P, conv7P, g, carBMB, peopleBMB = sess.run([gt_cls_frcnn, fc1, 
-					peopleIoU, carIoU, gtValFrcnn, gt_cls_frcnn,
-					bestBboxArg, best2BboxArg, bestBbox, best2Bbox,
-					theta, avg_loss_frcnn_cls, optimizer_frcnn_cls, accuracy_frcnn_cls, conv8, conv7, gtLabels_approx, 
-					carBboxModBig, peopleBboxModBig])
+				# gt_cls_frcnnP, fc1P, pi, ci, gtValFrcnnP, gt_cls_frcnnP, bba, bba2, bb, bb2, thetaP, l, _, acc, conv8P, conv7P, g, carBMB, peopleBMB = sess.run([gt_cls_frcnn, fc1, 
+				# 	peopleIoU, carIoU, gtValFrcnn, gt_cls_frcnn,
+				# 	bestBboxArg, best2BboxArg, bestBbox, best2Bbox,
+				# 	theta, avg_loss_frcnn_cls, optimizer_frcnn_cls, accuracy_frcnn_cls, conv8, conv7, gtLabels_approx, 
+				# 	carBboxModBig, peopleBboxModBig])
+				l, _, acc = sess.run([avg_loss_frcnn_cls, optimizer_frcnn_cls, accuracy_frcnn_cls])
 				num_batches = num_batches + 1
 				total_loss = total_loss + l
 				total_acc = total_acc + acc
@@ -633,8 +622,8 @@ def run_frcnn_cls(sess, num_epochs = 3, trainBase=False):
 				# print '---------'
 				# print gt_cls_frcnnP
 				# print '+++++++++'
-				if (epoch == 18 or epoch == 0) and num_batches == 1:
-					pdb.set_trace()
+				# if (epoch == 18 or epoch == 0) and num_batches == 1:
+				# 	pdb.set_trace()
 		except tf.errors.OutOfRangeError:
 			pass
 		except tf.errors.InvalidArgumentError as e:
@@ -689,7 +678,7 @@ def run_frcnn_rpn(sess, num_epochs=3):
 def alternateTraining(sess):
 	# run_rpn_cls(sess, num_epochs=5)
 	run_rpn_reg_cls(sess, num_epochs=20)
-	run_frcnn_cls(sess, num_epochs=20)
+	run_frcnn_cls(sess, num_epochs=30)
 	# run_frcnn_rpn(sess, num_epochs=45)
 
 with tf.Session() as sess:
