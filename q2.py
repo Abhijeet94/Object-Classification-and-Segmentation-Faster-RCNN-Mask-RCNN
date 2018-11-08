@@ -327,11 +327,11 @@ bestBbox_train = tf.gather_nd(reshapedConv8, bbtrainGatherIndices)
 bb2trainGatherIndices = tf.concat([batchIndices, best2BboxIndex_train[:, 0:1]], axis=1)
 best2Bbox_train = tf.gather_nd(reshapedConv8, bb2trainGatherIndices)
 
-bestBboxArg = tf.cond(trainingPhase, lambda: bestBboxIndex_train, lambda: bestBboxIndex_test)
-best2BboxArg = tf.cond(trainingPhase, lambda: best2BboxIndex_train, lambda: best2BboxIndex_test)
+bestBboxArg = tf.cond(trainingPhase, lambda: bestBboxIndex_test, lambda: bestBboxIndex_test)
+best2BboxArg = tf.cond(trainingPhase, lambda: best2BboxIndex_test, lambda: best2BboxIndex_test)
 
-bestBbox = tf.cond(trainingPhase, lambda: bestBbox_train, lambda: bestBbox_test)
-best2Bbox = tf.cond(trainingPhase, lambda: best2Bbox_train, lambda: best2Bbox_test)
+bestBbox = tf.cond(trainingPhase, lambda: bestBbox_test, lambda: bestBbox_test)
+best2Bbox = tf.cond(trainingPhase, lambda: best2Bbox_test, lambda: best2Bbox_test)
 
 theta1 = tf.stack((	bestBbox[:, 2] / 128.0,
 					tf.zeros([batch_size], tf.float32),
