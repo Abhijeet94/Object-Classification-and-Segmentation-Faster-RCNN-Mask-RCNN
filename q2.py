@@ -31,10 +31,10 @@ totalDataTrain = Xtrain.shape[0]
 totalDataTest = Xtest.shape[0]
 
 train_data = tf.data.Dataset.from_tensor_slices((Xtrain, Y1train, Y2train, carMaskTrain, peopleMaskTrain))
-# train_data.shuffle(totalDataTrain)
+train_data.shuffle(totalDataTrain)
 train_data = train_data.batch(batchSize)
 test_data = tf.data.Dataset.from_tensor_slices((Xtest, Y1test, Y2test, carMaskTest, peopleMaskTest))
-# test_data.shuffle(totalDataTest)
+test_data.shuffle(totalDataTest)
 test_data = test_data.batch(batchSize)
 
 iterator = tf.data.Iterator.from_structure(train_data.output_types, train_data.output_shapes)
@@ -349,7 +349,7 @@ theta = tf.concat((theta1, theta2), axis=0)
 
 from spatial_transformer import *
 
-outS = 24
+outS = 4
 conv5stackedTwice = tf.tile(conv5_relu, [2, 1, 1, 1])
 transformerOutput = transformer(conv5stackedTwice, theta, (outS,outS))
 transformerOutput.set_shape([None, outS, outS, 128]) 
@@ -357,7 +357,7 @@ transformerOutput.set_shape([None, outS, outS, 128])
 with tf.variable_scope("FRCNN_cls"):
 	conv9 = tf.layers.conv2d(	inputs=transformerOutput,
 								filters=128,
-								kernel_size=[3, 3],
+								kernel_size=[1, 1],
 								padding='same',
 								activation=None,
 								name='conv9',
@@ -373,7 +373,7 @@ with tf.variable_scope("FRCNN_cls"):
 
 	conv10 = tf.layers.conv2d(	inputs=conv9_relu,
 								filters=128,
-								kernel_size=[3, 3],
+								kernel_size=[1, 1],
 								padding='same',
 								activation=None,
 								name='conv10',
@@ -433,8 +433,14 @@ optimizer_frcnnCls_rpn = tf.train.AdamOptimizer(learning_rate_frcnnCls_rpn).mini
 
 ############################ MASK RCNN ############################
 
+outS2 = 24
+conv5stackedTwice2 = tf.tile(conv5_relu, [2, 1, 1, 1])
+transformerOutput2 = transformer(conv5stackedTwice2, theta, (outS2,outS2))
+transformerOutput2.set_shape([None, outS2, outS2, 128]) 
+
+
 with tf.variable_scope("Mask_RCNN"):
-	conv11 = tf.layers.conv2d(	inputs=transformerOutput,
+	conv11 = tf.layers.conv2d(	inputs=transformerOutput2,
 								filters=128,
 								kernel_size=[3, 3],
 								padding='same',
@@ -511,7 +517,7 @@ accuracy_maskrcnn = tf.reduce_mean(correct_preds_maskrcnn)
 
 gt_mask_resized_round_bool = tf.cast(gt_mask_resized_round, tf.bool)
 predictions_maskrcnn_bool = tf.cast(predictions_maskrcnn, tf.bool)
-accuracy_maskrcnn_iou = tf.reduce_sum(gt_mask_resized_round * predictions_maskrcnn) / tf.reduce_sum(tf.logical_or(gt_mask_resized_round_bool, predictions_maskrcnn_bool))
+accuracy_maskrcnn_iou = tf.reduce_sum(gt_mask_resized_round * predictions_maskrcnn) / tf.reduce_sum(tf.cast(tf.logical_or(gt_mask_resized_round_bool, predictions_maskrcnn_bool), tf.float32))
 
 # pdb.set_trace()
 
@@ -523,12 +529,21 @@ accuracy_maskrcnn_iou = tf.reduce_sum(gt_mask_resized_round * predictions_maskrc
 ############## RUN SESSION ##############
 
 def plotTrainingLoss(loss_array):
-	return
+	# return
 	iteration_array = range(1, len(loss_array) + 1)
 	plt.plot(iteration_array, loss_array)
 	plt.xlabel('# Iteration')
 	plt.ylabel('Training Loss')
 	plt.title('Training loss over training iterations')
+	plt.show()
+
+def plotTestingAccuracy(acc_array):
+	# return
+	iteration_array = range(1, len(acc_array) + 1)
+	plt.plot(iteration_array, acc_array)
+	plt.xlabel('# Iteration')
+	plt.ylabel('Testing accuracy')
+	plt.title('Testing accuracy over training iterations')
 	plt.show()
 
 def run_test(sess):
@@ -545,6 +560,10 @@ def run_test(sess):
 def run_2_1(sess):
 	image = cv2.imread('P&C dataset/img/000001.jpg')
 	image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB).reshape(1, 128, 128, 3)
+
+	plt.imshow(image[0].astype(np.uint8))
+	plt.show()
+
 	theta = np.zeros((1, 6))
 	# 21,24,58,65 --> 50, 56.5, 58, 65
 	# 3,54,20,51 --> 13,79.5,20,51
@@ -567,6 +586,7 @@ def run_rpn_cls(sess, num_epochs = 3):
 	trainingRPN = True
 	trainingFrcnn = False
 	trainingLoss = []
+	testingAcc = []
 	for epoch in range(num_epochs):
 
 		# Training
@@ -595,24 +615,26 @@ def run_rpn_cls(sess, num_epochs = 3):
 
 		trainingLoss.append(total_loss/num_batches)
 
-		# # Testing
-		# start_time = time.time()
-		# trainingPhase = False
-		# sess.run(test_init)
-		# num_batches = 0
-		# total_loss = 0.0
-		# total_acc = 0.0
-		# try:
-		# 	while True:
-		# 		l, acc = sess.run([averageLoss_cls, accuracy_cls])
-		# 		num_batches = num_batches + 1
-		# 		total_loss = total_loss + l
-		# 		total_acc = total_acc + acc
-		# except tf.errors.OutOfRangeError:
-		# 	pass
-		# print('\t(Testing) Accuracy at epoch {0}: {1} '.format(epoch, total_acc/num_batches))
-		# print('\t(Testing) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
+		# Testing
+		start_time = time.time()
+		trainingPhase = False
+		sess.run(test_init)
+		num_batches = 0
+		total_loss = 0.0
+		total_acc = 0.0
+		try:
+			while True:
+				l, acc = sess.run([averageLoss_cls, accuracy_cls])
+				num_batches = num_batches + 1
+				total_loss = total_loss + l
+				total_acc = total_acc + acc
+		except tf.errors.OutOfRangeError:
+			pass
+		print('\t(Testing) Accuracy at epoch {0}: {1} '.format(epoch, total_acc/num_batches))
+		print('\t(Testing) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
+		testingAcc.append(total_acc/num_batches)
 	plotTrainingLoss(trainingLoss)
+	plotTestingAccuracy(testingAcc)
 
 def run_rpn_reg(sess, num_epochs = 3):
 	print 'RPN reg'
@@ -644,6 +666,24 @@ def run_rpn_reg(sess, num_epochs = 3):
 		print('(Training) Average loss at epoch {0}: {1}'.format(epoch, total_loss/num_batches))
 		print('(Training) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
 		trainingLoss.append(total_loss/num_batches)
+
+	# Testing
+	epoch = -1
+	start_time = time.time()
+	trainingPhase = False
+	sess.run(test_init)
+	num_batches = 0
+	total_loss = 0.0
+	try:
+		while True:
+			l = sess.run([averageSmoothLossReg])
+			num_batches = num_batches + 1
+			total_loss = total_loss + l
+	except tf.errors.OutOfRangeError:
+		pass
+	print('\t(Testing) Loss at epoch {0}: {1} '.format(epoch, total_loss/num_batches))
+	print('\t(Testing) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
+
 	plotTrainingLoss(trainingLoss)
 
 def run_rpn_reg_cls(sess, num_epochs = 3):
@@ -679,6 +719,24 @@ def run_rpn_reg_cls(sess, num_epochs = 3):
 		print('(Training) Average loss at epoch {0}: {1}'.format(epoch, total_loss/num_batches))
 		print('(Training) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
 		trainingLoss.append(total_loss/num_batches)
+
+	# Testing
+	epoch = -1
+	start_time = time.time()
+	trainingPhase = False
+	sess.run(test_init)
+	num_batches = 0
+	total_loss = 0.0
+	try:
+		while True:
+			l, = sess.run([rpnTotalLoss])
+			num_batches = num_batches + 1
+			total_loss = total_loss + l
+	except tf.errors.OutOfRangeError:
+		pass
+	print('\t(Testing) Loss at epoch {0}: {1} '.format(epoch, total_loss/num_batches))
+	print('\t(Testing) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
+
 	plotTrainingLoss(trainingLoss)
 
 def run_frcnn_cls(sess, num_epochs = 3, trainBase=False):
@@ -727,6 +785,21 @@ def run_frcnn_cls(sess, num_epochs = 3, trainBase=False):
 		print('(Training) Accuracy at epoch {0}: {1} '.format(epoch, total_acc/num_batches))
 		print('(Training) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
 
+		start_time = time.time()
+		trainingPhase = False
+		sess.run(test_init)
+		num_batches = 0
+		total_acc = 0.0
+		try:
+			while True:
+				acc, = sess.run([accuracy_frcnn_cls])
+				num_batches = num_batches + 1
+				total_acc = total_acc + acc
+		except tf.errors.OutOfRangeError:
+			pass
+		print('\t(Testing) Accuracy at epoch {0}: {1} '.format(epoch, total_acc/num_batches))
+		print('\t(Testing) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
+
 def run_frcnn_rpn(sess, num_epochs=3):
 	print 'FRCNN RPN'
 	trainingBase = True
@@ -764,6 +837,21 @@ def run_frcnn_rpn(sess, num_epochs=3):
 		print('(Training) Average loss at epoch {0}: {1}'.format(epoch, total_loss/num_batches))
 		print('(Training) Accuracy at epoch {0}: {1} '.format(epoch, total_acc/num_batches))
 		print('(Training) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
+
+		start_time = time.time()
+		trainingPhase = False
+		sess.run(test_init)
+		num_batches = 0
+		total_acc = 0.0
+		try:
+			while True:
+				acc, = sess.run([accuracy_frcnn_cls])
+				num_batches = num_batches + 1
+				total_acc = total_acc + acc
+		except tf.errors.OutOfRangeError:
+			pass
+		print('\t(Testing) Accuracy at epoch {0}: {1} '.format(epoch, total_acc/num_batches))
+		print('\t(Testing) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
 
 def run_maskrcnn(sess, num_epochs=3):
 	print 'Mask RCNN'
@@ -826,13 +914,16 @@ def run_maskrcnn(sess, num_epochs=3):
 	print('\t(Testing) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
 
 def alternateTraining(sess):
-	# run_rpn_cls(sess, num_epochs=5)
 	run_rpn_reg_cls(sess, num_epochs=20)
-	run_frcnn_cls(sess, num_epochs=30)
-	# run_frcnn_rpn(sess, num_epochs=45)
+	run_frcnn_cls(sess, num_epochs=20)
+
+	run_frcnn_rpn(sess, num_epochs=30)
+
+	run_rpn_reg_cls(sess, num_epochs=20)
+	run_frcnn_cls(sess, num_epochs=20)
 
 def alternateTrainingMask(sess):
-	# run_rpn_reg_cls(sess, num_epochs=20)
+	run_rpn_reg_cls(sess, num_epochs=20)
 	run_maskrcnn(sess, num_epochs=25)
 
 with tf.Session() as sess:
@@ -844,6 +935,6 @@ with tf.Session() as sess:
 	# run_maskrcnn(sess, 20)
 	# run_frcnn_cls(sess, num_epochs=30)
 
-	alternateTrainingMask(sess)
-	# alternateTraining(sess)
+	# alternateTrainingMask(sess)
+	alternateTraining(sess)
 	
