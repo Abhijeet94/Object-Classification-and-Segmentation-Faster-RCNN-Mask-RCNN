@@ -31,10 +31,10 @@ totalDataTrain = Xtrain.shape[0]
 totalDataTest = Xtest.shape[0]
 
 train_data = tf.data.Dataset.from_tensor_slices((Xtrain, Y1train, Y2train, carMaskTrain, peopleMaskTrain))
-train_data.shuffle(totalDataTrain)
+# train_data.shuffle(totalDataTrain)
 train_data = train_data.batch(batchSize)
 test_data = tf.data.Dataset.from_tensor_slices((Xtest, Y1test, Y2test, carMaskTest, peopleMaskTest))
-test_data.shuffle(totalDataTest)
+# test_data.shuffle(totalDataTest)
 test_data = test_data.batch(batchSize)
 
 iterator = tf.data.Iterator.from_structure(train_data.output_types, train_data.output_shapes)
@@ -350,9 +350,9 @@ theta = tf.concat((theta1, theta2), axis=0)
 from spatial_transformer import *
 
 outS = 4
-conv5stackedTwice = tf.tile(conv5_relu, [2, 1, 1, 1])
+conv5stackedTwice = tf.concat((conv5_relu, conv5_relu), axis=0)
 transformerOutput = transformer(conv5stackedTwice, theta, (outS,outS))
-transformerOutput.set_shape([None, outS, outS, 128]) 
+transformerOutput.set_shape([2 * batchSize, outS, outS, 128]) 
 
 with tf.variable_scope("FRCNN_cls"):
 	conv9 = tf.layers.conv2d(	inputs=transformerOutput,
@@ -420,7 +420,7 @@ loss_frcnn_cls = tf.nn.softmax_cross_entropy_with_logits_v2(labels=gt_cls_frcnn,
 avg_loss_frcnn_cls = tf.reduce_mean(loss_frcnn_cls)
 
 preds_frcnn_cls = tf.nn.softmax(fc1)
-correct_preds_frcnn_cls = tf.equal(tf.argmax(preds_frcnn_cls, axis=1), gtValFrcnn)
+correct_preds_frcnn_cls = tf.equal(tf.argmax(preds_frcnn_cls, axis=1), gtValFrcnnFlat)
 accuracy_frcnn_cls = tf.reduce_mean(tf.cast(correct_preds_frcnn_cls, tf.float32))
 
 learning_rate_frcnn_cls = 0.001
@@ -470,7 +470,7 @@ with tf.variable_scope("Mask_RCNN"):
 												trainable=trainingMaskrcnn,
 												training=trainingPhase)
 
-	conv12_relu = tf.nn.relu(conv12_bn, name='conv10_relu')
+	conv12_relu = tf.nn.relu(conv12_bn, name='conv12_relu')
 
 	conv13 = tf.layers.conv2d(	inputs=conv12_relu,
 								filters=1,
@@ -756,11 +756,11 @@ def run_frcnn_cls(sess, num_epochs = 3, trainBase=False):
 		total_acc = 0.0
 		try:
 			while True:
-				# gt_cls_frcnnP, fc1P, pi, ci, gtValFrcnnP, gt_cls_frcnnP, bba, bba2, bb, bb2, thetaP, l, _, acc, conv8P, conv7P, g, carBMB, peopleBMB = sess.run([gt_cls_frcnn, fc1, 
-				# 	peopleIoU, carIoU, gtValFrcnn, gt_cls_frcnn,
-				# 	bestBboxArg, best2BboxArg, bestBbox, best2Bbox,
-				# 	theta, avg_loss_frcnn_cls, optimizer_frcnn_cls, accuracy_frcnn_cls, conv8, conv7, gtLabels_approx, 
-				# 	carBboxModBig, peopleBboxModBig])
+				gt_cls_frcnnP, fc1P, pi, ci, gtValFrcnnP, gt_cls_frcnnP, bba, bba2, bb, bb2, thetaP, l, _, acc, conv8P, conv7P, g, carBMB, peopleBMB = sess.run([gt_cls_frcnn, fc1, 
+					peopleIoU, carIoU, gtValFrcnn, gt_cls_frcnn,
+					bestBboxArg, best2BboxArg, bestBbox, best2Bbox,
+					theta, avg_loss_frcnn_cls, optimizer_frcnn_cls, accuracy_frcnn_cls, conv8, conv7, gtLabels_approx, 
+					carBboxModBig, peopleBboxModBig])
 				l, _, acc = sess.run([avg_loss_frcnn_cls, optimizer_frcnn_cls, accuracy_frcnn_cls])
 				num_batches = num_batches + 1
 				total_loss = total_loss + l
@@ -926,6 +926,7 @@ def alternateTrainingMask(sess):
 	run_rpn_reg_cls(sess, num_epochs=20)
 	run_maskrcnn(sess, num_epochs=25)
 
+writer = tf.summary.FileWriter('./graphs', tf.get_default_graph())
 with tf.Session() as sess:
 	sess.run(tf.global_variables_initializer())
 	# run_rpn_cls(sess, 20)
@@ -937,4 +938,7 @@ with tf.Session() as sess:
 
 	# alternateTrainingMask(sess)
 	alternateTraining(sess)
+
+	writer = tf.summary.FileWriter('./graphs', sess.graph)
 	
+writer.close()
