@@ -25,7 +25,7 @@ def getAllMasks(folderPath):
 	for i in range(2000):
 		imagePath = folderPath + '/{0:06d}.png'.format(i)
 		im = cv2.imread(imagePath)
-		resized_im = cv2.resize(im, (24, 24))
+		resized_im = cv2.resize(im, (27, 27))
 		images.append(resized_im[:, :, 0][:, :, None])
 
 	# return np.asarray(images, dtype=object)
