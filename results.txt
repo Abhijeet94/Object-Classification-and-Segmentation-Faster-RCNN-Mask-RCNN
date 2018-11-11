@@ -1,0 +1,33 @@
+1.1
+(Training) Average loss at epoch 19: 0.0441254813923
+(Training) Accuracy at epoch 19: 0.98422151804 
+(Training) Recall at epoch 19: 0.928856037557 
+(Training) Epoch 19 took: 1.21462893486 seconds
+	(Testing) Accuracy at epoch 19: 0.963714897633 
+	(Testing) Epoch 19 took: 0.151973009109 seconds
+
+
+1.2
+(Training) Average loss at epoch 19: 0.0170041716192
+(Training) Epoch 19 took: 1.24277710915 seconds
+	(Testing) Loss at epoch -1: 0.0298580829985 
+	(Testing) Epoch -1 took: 0.96701002121 seconds
+
+2.2
+(Training) Average loss at epoch 49: 0.156757123908
+(Training) Accuracy at epoch 49: 0.973124994338 
+(Training) Epoch 49 took: 4.49740695953 seconds
+	(Testing) Accuracy at epoch 49: 0.747500000894 
+	(Testing) Epoch 49 took: 0.4389128685 seconds
+
+
+
+2.3
+
+(Training) Average loss at epoch 24: 0.277794389054
+(Training) Accuracy at epoch 24: 0.868594389409 
+(Training) Accuracy (iou) at epoch 24: 0.844830051064 
+(Training) Epoch 24 took: 0.763226032257 seconds
+	(Testing) Accuracy at epoch -1: 0.801555216312 
+	(Testing) Accuracy (iou) at epoch -1: 0.777852937579 
+	(Testing) Epoch -1 took: 0.512632846832 seconds

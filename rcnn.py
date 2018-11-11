@@ -943,8 +943,8 @@ def run_1_2(sess):
 	run_rpn_reg_cls(sess, 20)
 
 def run_2_2(sess):
-	run_rpn_reg_cls(sess, num_epochs=20)
-	run_frcnn_rpn(sess, num_epochs=20)
+	# run_rpn_reg_cls(sess, num_epochs=20)
+	run_frcnn_rpn(sess, num_epochs=50)
 
 def run_2_3(sess):
 	run_rpn_reg_cls(sess, num_epochs=20)
@@ -968,9 +968,9 @@ with tf.Session() as sess:
 	sess.run(tf.global_variables_initializer())
 
 	run_1_1(sess)
-	run_1_2(sess)
-	run_2_2(sess)
-	run_2_3(sess)
+	# run_1_2(sess)
+	# run_2_2(sess)
+	# run_2_3(sess)
 
 	writer = tf.summary.FileWriter('./graphs', sess.graph)
 	
