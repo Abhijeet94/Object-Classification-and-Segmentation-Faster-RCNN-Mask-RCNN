@@ -31,3 +31,12 @@
 	(Testing) Accuracy at epoch -1: 0.810406386852 
 	(Testing) Accuracy (iou) at epoch -1: 0.784097030759 
 	(Testing) Epoch -1 took: 1.04333901405 seconds
+
+
+Alternate training - 
+(Training) Accuracy at epoch 24: 0.858845163137 
+(Training) Accuracy (iou) at epoch 24: 0.834365841001 
+(Training) Epoch 24 took: 0.736096858978 seconds
+	(Testing) Accuracy at epoch -1: 0.7954749614 
+	(Testing) Accuracy (iou) at epoch -1: 0.766125559807 
+	(Testing) Epoch -1 took: 0.561912059784 seconds
