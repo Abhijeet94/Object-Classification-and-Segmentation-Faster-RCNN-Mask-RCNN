@@ -528,6 +528,10 @@ learning_rate_maskrcnn = baseLR
 train_vars_mask = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, "Mask_RCNN") 
 optimizer_maskrcnn = tf.train.AdamOptimizer(learning_rate_maskrcnn).minimize(avg_loss_maskrcnn, var_list=train_vars_mask)
 
+learning_rate_maskrcnn_total = baseLR
+total_loss_maskrcnn = avg_loss_maskrcnn + rpnTotalLoss
+optimizer_maskrcnn_total = tf.train.AdamOptimizer(learning_rate_maskrcnn_total).minimize(total_loss_maskrcnn)
+
 predictions_maskrcnn = tf.cast(tf.nn.sigmoid(conv15) > 0.5, tf.float32)
 correct_preds_maskrcnn = tf.cast(tf.equal(gt_mask_resized_round, predictions_maskrcnn), tf.float32)
 accuracy_maskrcnn = tf.reduce_mean(correct_preds_maskrcnn)
@@ -936,6 +940,82 @@ def run_maskrcnn(sess, num_epochs=3):
 
 	plotTrainingLoss(trainingLoss, 'Mask RCNN')
 
+def run_maskrcnn_total(sess, num_epochs=3):
+	print 'Mask RCNN'
+	trainingBase = True
+	trainingRPN = True
+	trainingFrcnn = True
+	Mask_RCNN = True
+
+	l1Arr = []
+	l2Arr = []
+	l3Arr = []
+
+	for epoch in range(num_epochs):
+
+		# Training
+		start_time = time.time()
+		trainingPhase = True
+		sess.run(train_init)
+		num_batches = 0
+		total_acc = 0.0
+		total_acci = 0.0
+		total_l1 = 0.0
+		total_l2 = 0.0
+		total_l3 = 0.0
+		try:
+			while True:
+				_, acc, acci, l1, l2, l3 = sess.run([optimizer_maskrcnn_total, accuracy_maskrcnn, accuracy_maskrcnn_iou, loss_cls_reduced, averageSmoothLossReg, avg_loss_maskrcnn])
+				num_batches = num_batches + 1
+				total_acc = total_acc + acc
+				total_acci = total_acci + acci
+				total_l1 = total_l1 + l1
+				total_l2 = total_l2 + l2
+				total_l3 = total_l3 + l3
+		except tf.errors.OutOfRangeError:
+			pass
+		except tf.errors.InvalidArgumentError as e:
+			print('Invalid argument error')
+			pdb.set_trace()
+		except KeyboardInterrupt:
+			sys.exit()
+		except:
+			print('Error')
+		print('(Training) Average loss at epoch {0}: {1}'.format(epoch, total_l3/num_batches))
+		print('(Training) Accuracy at epoch {0}: {1} '.format(epoch, total_acc/num_batches))
+		print('(Training) Accuracy (iou) at epoch {0}: {1} '.format(epoch, total_acci/num_batches))
+		print('(Training) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
+
+		l1Arr.append(total_l1/num_batches)
+		l2Arr.append(total_l2/num_batches)
+		l3Arr.append(total_l3/num_batches)
+
+	# Testing
+	epoch = -1
+	start_time = time.time()
+	trainingPhase = False
+	sess.run(test_init)
+	num_batches = 0
+	total_loss = 0.0
+	total_acc = 0.0
+	total_acci = 0.0
+	try:
+		while True:
+			l, acc, acci = sess.run([avg_loss_maskrcnn, accuracy_maskrcnn, accuracy_maskrcnn_iou])
+			num_batches = num_batches + 1
+			total_loss = total_loss + l
+			total_acc = total_acc + acc
+			total_acci = total_acci + acci
+	except tf.errors.OutOfRangeError:
+		pass
+	print('\t(Testing) Accuracy at epoch {0}: {1} '.format(epoch, total_acc/num_batches))
+	print('\t(Testing) Accuracy (iou) at epoch {0}: {1} '.format(epoch, total_acci/num_batches))
+	print('\t(Testing) Epoch {1} took: {0} seconds'.format(time.time() - start_time, epoch))
+
+	plotTrainingLoss(l1Arr, 'RPN Proposal classifier')
+	plotTrainingLoss(l2Arr, 'RPN Proposal regressor')
+	plotTrainingLoss(l3Arr, 'Mask-RCNN combined')
+
 def run_1_1(sess):
 	run_rpn_cls(sess, 20)
 
@@ -947,8 +1027,12 @@ def run_2_2(sess):
 	run_frcnn_rpn(sess, num_epochs=50)
 
 def run_2_3(sess):
-	run_rpn_reg_cls(sess, num_epochs=20)
-	run_maskrcnn(sess, num_epochs=25)
+	# Alternate training
+	# run_rpn_reg_cls(sess, num_epochs=20)
+	# run_maskrcnn(sess, num_epochs=25)
+
+	# Combined training
+	run_maskrcnn_total(sess, 30)
 
 def alternateTraining(sess):
 	run_rpn_reg_cls(sess, num_epochs=20)
@@ -967,10 +1051,10 @@ writer = tf.summary.FileWriter('./graphs', tf.get_default_graph())
 with tf.Session() as sess:
 	sess.run(tf.global_variables_initializer())
 
-	run_1_1(sess)
+	# run_1_1(sess)
 	# run_1_2(sess)
 	# run_2_2(sess)
-	# run_2_3(sess)
+	run_2_3(sess)
 
 	writer = tf.summary.FileWriter('./graphs', sess.graph)
 	

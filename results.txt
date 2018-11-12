@@ -24,10 +24,10 @@
 
 2.3
 
-(Training) Average loss at epoch 24: 0.277794389054
-(Training) Accuracy at epoch 24: 0.868594389409 
-(Training) Accuracy (iou) at epoch 24: 0.844830051064 
-(Training) Epoch 24 took: 0.763226032257 seconds
-	(Testing) Accuracy at epoch -1: 0.801555216312 
-	(Testing) Accuracy (iou) at epoch -1: 0.777852937579 
-	(Testing) Epoch -1 took: 0.512632846832 seconds
+(Training) Average loss at epoch 29: 0.283654283732
+(Training) Accuracy at epoch 29: 0.864675067365 
+(Training) Accuracy (iou) at epoch 29: 0.841096520424 
+(Training) Epoch 29 took: 1.42808794975 seconds
+	(Testing) Accuracy at epoch -1: 0.810406386852 
+	(Testing) Accuracy (iou) at epoch -1: 0.784097030759 
+	(Testing) Epoch -1 took: 1.04333901405 seconds
